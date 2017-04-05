@@ -1,3 +1,7 @@
+//! Signed, encrypted session cookies for Iron
+
+// TODO change to deny once this is more stable
+
 extern crate bincode;
 extern crate cookie;
 extern crate crypto;
@@ -13,6 +17,7 @@ extern crate serde;
 extern crate serde_derive;
 extern crate typemap;
 
+/// The name of the cookie that stores the session.
 pub const SESSION_COOKIE_NAME: &'static str = "ss";
 
 pub mod error;

@@ -1,3 +1,5 @@
+//! Sessions and session management utilities
+
 use bincode::{self, Infinite};
 use crypto::aead::{AeadEncryptor, AeadDecryptor};
 use crypto::chacha20poly1305::ChaCha20Poly1305;
@@ -10,6 +12,7 @@ use error::SessionError;
 
 const SCRYPT_SALT: &[u8; 31] = b"rust-secure-session-scrypt-salt";
 
+/// Persistent session passed to client as a cookie.
 #[derive(Clone, Serialize, Deserialize, Debug, Eq, PartialEq)]
 pub struct Session {
     expires: Option<i64>, // TODO
@@ -17,6 +20,7 @@ pub struct Session {
 }
 
 impl Session {
+    /// Create an empty session.
     pub fn new() -> Self {
         Session {
             expires: None,
@@ -24,14 +28,17 @@ impl Session {
         }
     }
 
+    /// Store bytes for the given key.
     pub fn get_bytes(&self, key: String) -> Option<&Vec<u8>> {
         self.map.get(&key)
     }
 
+    /// Retrieve bytes for the given key.
     pub fn set_bytes(&mut self, key: String, bytes: Vec<u8>) {
         let _ = self.map.insert(key, bytes);
     }
 
+    /// Remove bytes stored at the given key.
     pub fn remove(&mut self, key: String) {
         let _ = self.map.remove(&key);
     }
@@ -51,19 +58,30 @@ pub trait SessionManager: Send + Sync {
     /// This function may panic if the underlying crypto library fails catastrophically.
     fn from_password(password: &[u8]) -> Self;
 
+    /// Given a slice of bytes perform the following options to convert it into a `Session`:
+    ///
+    ///   * Decrypt (optional)
+    ///   * Verify signature / MAC
+    ///   * Parse / deserialize into a `Session` struct
     fn deserialize(&self, bytes: &[u8]) -> Result<Session, SessionError>;
 
+    /// Given a session perform the following options to convert it into a bytes:
+    ///
+    ///   * Encrypt (optional)
+    ///   * Sign / MAC
+    ///   * Encode / serialize into bytes
     fn serialize(&self, session: &Session) -> Result<Vec<u8>, SessionError>;
 }
 
 
-/// Provides signed, encrypted sessions.
+/// Uses the ChaCha20Poly1305 AEAD to provide signed, encrypted sessions.
 pub struct ChaCha20Poly1305SessionManager {
     rng: SystemRandom,
     aead_key: [u8; 32],
 }
 
 impl ChaCha20Poly1305SessionManager {
+    /// Using a saved key, generate a `ChaCha20Poly1305SessionManager`.
     pub fn from_key(aead_key: [u8; 32]) -> Self {
         ChaCha20Poly1305SessionManager {
             rng: SystemRandom::new(),

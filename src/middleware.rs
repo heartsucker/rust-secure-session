@@ -1,3 +1,5 @@
+//! Iron specific middleware and handlers
+
 use cookie::Cookie;
 use iron::headers::{SetCookie, Cookie as IronCookie};
 use iron::middleware::{AroundMiddleware, Handler};
@@ -40,7 +42,6 @@ impl<S: SessionManager, H: Handler> SessionHandler<S, H> {
                     .map(|c| c.clone())
             })
     }
-
 }
 
 impl<S: SessionManager + 'static, H: Handler> Handler for SessionHandler<S, H> {
@@ -53,8 +54,8 @@ impl<S: SessionManager + 'static, H: Handler> Handler for SessionHandler<S, H> {
         match session_opt {
             Some(session) => {
                 let _ = request.extensions.insert::<Session>(session);
-            },
-            None => {},
+            }
+            None => {}
         }
 
         // main
@@ -66,7 +67,8 @@ impl<S: SessionManager + 'static, H: Handler> Handler for SessionHandler<S, H> {
         match session_opt {
             Some(session) => {
                 // TODO unwrap
-                let session_str = self.manager.serialize(&session).unwrap().to_base64(base64::STANDARD);
+                let session_str =
+                    self.manager.serialize(&session).unwrap().to_base64(base64::STANDARD);
                 let cookie = Cookie::build(SESSION_COOKIE_NAME, session_str)
                     // TODO config for path
                     .path("/")
@@ -84,24 +86,24 @@ impl<S: SessionManager + 'static, H: Handler> Handler for SessionHandler<S, H> {
                     }
                 }
                 response.headers.set(SetCookie(cookies));
-            },
-            None => {},
+            }
+            None => {}
         }
 
         Ok(response)
     }
 }
 
+/// Middleware for automatic session management
 pub struct SessionMiddleware<S: SessionManager> {
     manager: S,
     // TODO config: SessionConfig,
 }
 
 impl<S: SessionManager> SessionMiddleware<S> {
+    /// Create a new `SessionMiddleware` given a `SessionManager`
     pub fn new(manager: S) -> Self {
-        SessionMiddleware {
-            manager: manager,
-        }
+        SessionMiddleware { manager: manager }
     }
 }
 

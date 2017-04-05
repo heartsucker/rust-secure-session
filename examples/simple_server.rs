@@ -3,6 +3,7 @@ extern crate secure_session;
 
 use iron::AroundMiddleware;
 use iron::headers::ContentType;
+use iron::method;
 use iron::prelude::*;
 use iron::status;
 use std::io::Read;
@@ -27,12 +28,12 @@ fn main() {
 // This is a stupid, mess of a function, but that's what happens when you just try to cram
 // everything in to make the example work
 fn index(request: &mut Request) -> IronResult<Response> {
+    let x = method::Post;
     let msg = match request.extensions.get_mut::<Session>() {
         Some(mut session) => {
-            let message = match session.get_bytes("message".to_string()).and_then(|b| str::from_utf8(b).ok()) {
-                Some(message) => {
-                    message.to_string()
-                }
+            let message = match session.get_bytes("message".to_string())
+                .and_then(|b| str::from_utf8(b).ok()) {
+                Some(message) => message.to_string(),
                 None => {
                     let mut body = String::new();
                     let _ = request.body.read_to_string(&mut body).unwrap();
@@ -45,7 +46,7 @@ fn index(request: &mut Request) -> IronResult<Response> {
             };
             session.set_bytes("message".to_string(), message.clone().into_bytes());
             message
-        },
+        }
         None => {
             let mut body = String::new();
             let _ = request.body.read_to_string(&mut body).unwrap();
