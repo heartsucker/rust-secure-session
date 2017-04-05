@@ -1,5 +1,6 @@
 //! Iron specific middleware and handlers
 
+use chrono::Duration;
 use cookie::Cookie;
 use iron::headers::{SetCookie, Cookie as IronCookie};
 use iron::middleware::{AroundMiddleware, Handler};
@@ -11,13 +12,15 @@ use session::{SessionManager, Session};
 
 struct SessionHandler<S: SessionManager, H: Handler> {
     manager: S,
+    config: SessionConfig,
     handler: H,
 }
 
 impl<S: SessionManager, H: Handler> SessionHandler<S, H> {
-    fn new(manager: S, handler: H) -> Self {
+    fn new(manager: S, config: SessionConfig, handler: H) -> Self {
         SessionHandler {
             manager: manager,
+            config: config,
             handler: handler,
         }
     }
@@ -69,14 +72,20 @@ impl<S: SessionManager + 'static, H: Handler> Handler for SessionHandler<S, H> {
                 // TODO unwrap
                 let session_str =
                     self.manager.serialize(&session).unwrap().to_base64(base64::STANDARD);
+
                 let cookie = Cookie::build(SESSION_COOKIE_NAME, session_str)
                     // TODO config for path
                     .path("/")
-                    .http_only(true)
+                    .http_only(true);
                     // TODO .secure(self.config.secure_cookie)
                     // TODO config flag for SameSite
-                    // TODO expires .max_age(Duration::seconds(self.config.ttl_seconds))
-                    .finish();
+
+                let cookie = (match self.config.ttl_seconds {
+                    Some(ttl) => {
+                        cookie.max_age(Duration::seconds(ttl))
+                    },
+                    None => cookie
+                }).finish();
 
                 let mut cookies = vec![format!("{}", cookie.encoded())]; // TODO is this formatting dumb?
 
@@ -97,18 +106,60 @@ impl<S: SessionManager + 'static, H: Handler> Handler for SessionHandler<S, H> {
 /// Middleware for automatic session management
 pub struct SessionMiddleware<S: SessionManager> {
     manager: S,
-    // TODO config: SessionConfig,
+    config: SessionConfig,
 }
 
 impl<S: SessionManager> SessionMiddleware<S> {
     /// Create a new `SessionMiddleware` given a `SessionManager`
-    pub fn new(manager: S) -> Self {
-        SessionMiddleware { manager: manager }
+    pub fn new(manager: S, config: SessionConfig) -> Self {
+        SessionMiddleware {
+            manager: manager,
+            config: config,
+        }
     }
 }
 
 impl<S: SessionManager + 'static> AroundMiddleware for SessionMiddleware<S> {
     fn around(self, handler: Box<Handler>) -> Box<Handler> {
-        Box::new(SessionHandler::new(self.manager, handler))
+        Box::new(SessionHandler::new(self.manager, self.config, handler))
     }
 }
+
+
+/// Configuration of how sessions and session cookies are created and validated
+pub struct SessionConfig {
+    ttl_seconds: Option<i64>,
+}
+
+impl SessionConfig {
+    /// Create a new builder that is initialized with the default configuration.
+    pub fn build() -> SessionConfigBuilder {
+        SessionConfigBuilder::new()
+    }
+}
+
+impl Default for SessionConfig {
+    fn default() -> Self {
+        SessionConfig {
+            ttl_seconds: None,
+        }
+    }
+}
+
+
+pub struct SessionConfigBuilder {
+    config: SessionConfig,
+}
+
+impl SessionConfigBuilder {
+    fn new() -> Self {
+        SessionConfigBuilder { config: SessionConfig::default() }
+    }
+
+    /// Set the session time to live (TTL) in seconds. Default: `None`
+    pub fn ttl_seconds(mut self, ttl_seconds: Option<i64>) -> Self {
+        self.config.ttl_seconds = ttl_seconds;
+        self
+    }
+}
+

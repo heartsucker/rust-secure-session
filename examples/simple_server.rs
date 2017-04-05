@@ -3,20 +3,20 @@ extern crate secure_session;
 
 use iron::AroundMiddleware;
 use iron::headers::ContentType;
-use iron::method;
 use iron::prelude::*;
 use iron::status;
 use std::io::Read;
 use std::str;
 
-use secure_session::middleware::SessionMiddleware;
+use secure_session::middleware::{SessionMiddleware, SessionConfig};
 use secure_session::session::{Session, SessionManager, ChaCha20Poly1305SessionManager};
 
 fn main() {
     // initialize the session manager
     let password = b"very-very-secret";
     let manager = ChaCha20Poly1305SessionManager::from_password(password);
-    let middleware = SessionMiddleware::new(manager);
+    let config = SessionConfig::default();
+    let middleware = SessionMiddleware::new(manager, config);
 
     // wrap the routes
     let handler = middleware.around(Box::new(index));
@@ -28,7 +28,6 @@ fn main() {
 // This is a stupid, mess of a function, but that's what happens when you just try to cram
 // everything in to make the example work
 fn index(request: &mut Request) -> IronResult<Response> {
-    let x = method::Post;
     let msg = match request.extensions.get_mut::<Session>() {
         Some(mut session) => {
             let message = match session.get_bytes("message".to_string())
@@ -40,7 +39,7 @@ fn index(request: &mut Request) -> IronResult<Response> {
                     if body.len() > 8 {
                         body[8..body.len()].to_string()
                     } else {
-                        "message to short!".to_string()
+                        "message too short!".to_string()
                     }
                 }
             };

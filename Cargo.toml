@@ -20,6 +20,7 @@ path = "./src/lib.rs"
 
 [dependencies]
 bincode = "1.0.0-alpha6"
+chrono = "0.3"
 cookie = { version = "0.6", features = [ "percent-encode" ] }
 iron = "0.5"
 log = "0.3"

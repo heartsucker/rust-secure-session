@@ -3,6 +3,7 @@
 // TODO change to deny once this is more stable
 
 extern crate bincode;
+extern crate chrono;
 extern crate cookie;
 extern crate crypto;
 extern crate iron;

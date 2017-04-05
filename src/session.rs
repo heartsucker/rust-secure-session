@@ -71,6 +71,9 @@ pub trait SessionManager: Send + Sync {
     ///   * Sign / MAC
     ///   * Encode / serialize into bytes
     fn serialize(&self, session: &Session) -> Result<Vec<u8>, SessionError>;
+
+    /// Whether or not the sessions are encrypted.
+    fn is_encrypted(&self) -> bool;
 }
 
 
@@ -188,6 +191,8 @@ impl SessionManager for ChaCha20Poly1305SessionManager {
 
         Ok(transport)
     }
+
+    fn is_encrypted(&self) -> bool { true }
 }
 
 #[cfg(test)]
