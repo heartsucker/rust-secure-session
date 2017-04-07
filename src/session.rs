@@ -173,8 +173,8 @@ impl ChaCha20Poly1305SessionManager {
     fn random_bytes(&self, buf: &mut [u8]) -> Result<(), SessionError> {
         self.rng
             .fill(buf)
-            .map_err(|_| {
-                warn!("Failed to get random bytes");
+            .map_err(|err| {
+                warn!("Failed to get random bytes: {}", err);
                 SessionError::InternalError
             })
     }
@@ -227,14 +227,23 @@ impl SessionManager for ChaCha20Poly1305SessionManager {
             return Err(SessionError::ValidationError);
         }
 
-        Ok(bincode::deserialize(&plaintext[16..plaintext.len()]).unwrap()) // TODO unwrap
+        bincode::deserialize(&plaintext[16..plaintext.len()])
+            .map_err(|err| {
+                warn!("Failed to deserialize session: {}", err);
+                SessionError::InternalError
+            })
     }
 
     fn serialize(&self, session: &SessionTransport) -> Result<Vec<u8>, SessionError> {
         let mut nonce = [0; 8];
         self.random_bytes(&mut nonce)?;
 
-        let session_bytes = bincode::serialize(&session, Infinite).unwrap(); // TODO unwrap
+        let session_bytes = bincode::serialize(&session, Infinite)
+            .map_err(|err| {
+                warn!("Failed to serialize session: {}", err);
+                SessionError::InternalError
+            })?;
+
         let mut padding = [0; 16];
         self.random_bytes(&mut padding)?;
 
@@ -300,8 +309,8 @@ impl AesGcmSessionManager {
     fn random_bytes(&self, buf: &mut [u8]) -> Result<(), SessionError> {
         self.rng
             .fill(buf)
-            .map_err(|_| {
-                warn!("Failed to get random bytes");
+            .map_err(|err| {
+                warn!("Failed to get random bytes: {}", err);
                 SessionError::InternalError
             })
     }
@@ -354,14 +363,23 @@ impl SessionManager for AesGcmSessionManager {
             return Err(SessionError::ValidationError);
         }
 
-        Ok(bincode::deserialize(&plaintext[16..plaintext.len()]).unwrap()) // TODO unwrap
+        bincode::deserialize(&plaintext[16..plaintext.len()])
+            .map_err(|err| {
+                warn!("Failed to deserialize session: {}", err);
+                SessionError::InternalError
+            })
     }
 
     fn serialize(&self, session: &SessionTransport) -> Result<Vec<u8>, SessionError> {
         let mut nonce = [0; 12];
         self.random_bytes(&mut nonce)?;
 
-        let session_bytes = bincode::serialize(&session, Infinite).unwrap(); // TODO unwrap
+        let session_bytes = bincode::serialize(&session, Infinite)
+            .map_err(|err| {
+                warn!("Failed to serialize session: {}", err);
+                SessionError::InternalError
+            })?;
+
         let mut padding = [0; 16];
         self.random_bytes(&mut padding)?;
 
