@@ -30,12 +30,16 @@ fn index(request: &mut Request) -> IronResult<Response> {
     let message = match request.method {
         Method::Post => {
             let session = request.extensions.get_mut::<Session>().unwrap();
-            let (message, insert) = match session.get_bytes("message").and_then(|b| str::from_utf8(b).ok()) {
+
+            // grab the message from the session and whether to update or not
+            let (message, insert) = match session.get_bytes("message")
+                .and_then(|b| str::from_utf8(b).ok()) {
                 Some(message) => (message.to_string(), false),
                 None => {
                     let mut body = String::new();
                     let _ = request.body.read_to_string(&mut body).unwrap();
                     if body.len() > 8 {
+                        // return (msg, true) because we only update if the message wasn't there
                         (body[8..body.len()].to_string(), true)
                     } else {
                         ("message too short!".to_string(), false)
@@ -43,14 +47,17 @@ fn index(request: &mut Request) -> IronResult<Response> {
                 }
             };
 
+            // only update if the message was never seen before
             if insert {
                 session.insert_bytes("message", message.as_bytes().to_vec());
             }
 
             message
-        },
+        }
         _ => {
             let session = request.extensions.get_mut::<Session>().unwrap();
+
+            // select the message to display
             match session.get_bytes("message").and_then(|b| str::from_utf8(b).ok()) {
                 Some(message) => message.to_string(),
                 None => "no session message yet".to_string(),
@@ -60,7 +67,6 @@ fn index(request: &mut Request) -> IronResult<Response> {
 
     // in the real world, one would use something like handlebars instead of this hackiness
     let html = include_str!("./index.html").replace("SESSION_MESSAGE", &message);
-
     let mut response = Response::with((status::Ok, html));
     response.headers.set(ContentType::html());
 

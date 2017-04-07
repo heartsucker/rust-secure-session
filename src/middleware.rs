@@ -1,4 +1,4 @@
-//! Iron specific middleware and handlers
+//! Iron specific middleware and handlers.
 
 use chrono::{Duration, UTC};
 use cookie::Cookie;
@@ -7,6 +7,7 @@ use iron::middleware::{AroundMiddleware, Handler};
 use iron::prelude::*;
 use rustc_serialize::base64::{self, ToBase64, FromBase64};
 
+use error::SessionConfigError;
 use super::SESSION_COOKIE_NAME;
 use session::{SessionManager, Session, SessionTransport};
 
@@ -72,12 +73,16 @@ impl<S: SessionManager + 'static, H: Handler> Handler for SessionHandler<S, H> {
         // after
         let session_opt = request.extensions.get::<Session>();
 
-        match session_opt  {
+        match session_opt {
             Some(session) => {
                 // TODO set expiry
                 // TODO clone :(
-                let expires = self.config.ttl_seconds.map(|ttl| UTC::now() + Duration::seconds(ttl));
-                let transport = SessionTransport { expires: expires, session: session.clone() };
+                let expires =
+                    self.config.ttl_seconds.map(|ttl| UTC::now() + Duration::seconds(ttl));
+                let transport = SessionTransport {
+                    expires: expires,
+                    session: session.clone(),
+                };
                 let session_str =
                     self.manager.serialize(&transport).unwrap().to_base64(base64::STANDARD);
 
@@ -85,15 +90,14 @@ impl<S: SessionManager + 'static, H: Handler> Handler for SessionHandler<S, H> {
                     // TODO config for path
                     .path("/")
                     .http_only(true);
-                    // TODO .secure(self.config.secure_cookie)
-                    // TODO config flag for SameSite
+                // TODO .secure(self.config.secure_cookie)
+                // TODO config flag for SameSite
 
                 let cookie = (match self.config.ttl_seconds {
-                    Some(ttl) => {
-                        cookie.max_age(Duration::seconds(ttl))
-                    },
-                    None => cookie
-                }).finish();
+                        Some(ttl) => cookie.max_age(Duration::seconds(ttl)),
+                        None => cookie,
+                    })
+                    .finish();
 
                 let mut cookies = vec![format!("{}", cookie.encoded())]; // TODO is this formatting dumb?
 
@@ -111,14 +115,14 @@ impl<S: SessionManager + 'static, H: Handler> Handler for SessionHandler<S, H> {
     }
 }
 
-/// Middleware for automatic session management
+/// Middleware for automatic session management.
 pub struct SessionMiddleware<S: SessionManager> {
     manager: S,
     config: SessionConfig,
 }
 
 impl<S: SessionManager> SessionMiddleware<S> {
-    /// Create a new `SessionMiddleware` given a `SessionManager`
+    /// Create a new `SessionMiddleware` for the given `SessionManager` and `SessionConfig`.
     pub fn new(manager: S, config: SessionConfig) -> Self {
         SessionMiddleware {
             manager: manager,
@@ -134,7 +138,7 @@ impl<S: SessionManager + 'static> AroundMiddleware for SessionMiddleware<S> {
 }
 
 
-/// Configuration of how sessions and session cookies are created and validated
+/// Configuration of how sessions and session cookies are created and validated.
 pub struct SessionConfig {
     ttl_seconds: Option<i64>,
 }
@@ -148,19 +152,19 @@ impl SessionConfig {
 
 impl Default for SessionConfig {
     fn default() -> Self {
-        SessionConfig {
-            ttl_seconds: None,
-        }
+        SessionConfig { ttl_seconds: None }
     }
 }
 
 
+/// A utility to help build a `SessionConfig` in an API backwards compatible way.
 pub struct SessionConfigBuilder {
     config: SessionConfig,
 }
 
 impl SessionConfigBuilder {
-    fn new() -> Self {
+    /// Create a new builder that is initialized with the default configuration.
+    pub fn new() -> Self {
         SessionConfigBuilder { config: SessionConfig::default() }
     }
 
@@ -168,6 +172,11 @@ impl SessionConfigBuilder {
     pub fn ttl_seconds(mut self, ttl_seconds: Option<i64>) -> Self {
         self.config.ttl_seconds = ttl_seconds;
         self
+    }
+
+    /// Consume the builder and return a config.
+    pub fn finish(self) -> Result<SessionConfig, SessionConfigError> {
+        Ok(SessionConfig { ttl_seconds: self.config.ttl_seconds })
     }
 }
 

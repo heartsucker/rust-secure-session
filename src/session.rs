@@ -14,15 +14,29 @@ use error::SessionError;
 const SCRYPT_SALT: &'static [u8; 31] = b"rust-secure-session-scrypt-salt";
 
 
-// TODO docs ?
+/// Container for serializing and deserializing the session when sending it to and receiving it
+/// from a client.
 #[derive(Clone, Serialize, Deserialize, Debug, Eq, PartialEq)]
 pub struct SessionTransport {
+    /// Optional UTC timestamp for when the session expires.
     pub expires: Option<DateTime<UTC>>,
+    /// The session that was deserialized or will be serialized.
     pub session: Session,
 }
 
 
 /// Persistent session passed to client as a cookie.
+///
+/// ```
+/// use secure_session::session::Session;
+///
+/// let mut session = Session::new();
+/// assert_eq!(session.insert_bytes("foo", b"bar".to_vec()), None);
+/// assert_eq!(session.get_bytes("foo"), Some(&b"bar".to_vec()));
+///
+/// session.clear();
+/// assert_eq!(session.get_bytes("foo"), None);
+/// ```
 #[derive(Clone, Serialize, Deserialize, Debug, Eq, PartialEq)]
 pub struct Session {
     bytes: HashMap<String, Vec<u8>>,
@@ -31,33 +45,77 @@ pub struct Session {
 impl Session {
     /// Create an empty session.
     pub fn new() -> Self {
-        Session {
-            bytes: HashMap::new(),
-        }
+        Session { bytes: HashMap::new() }
     }
 
     /// Store bytes for the given key.
+    ///
+    /// ```
+    /// use secure_session::session::Session;
+    ///
+    /// let mut session = Session::new();
+    /// assert_eq!(session.insert_bytes("foo", b"bar".to_vec()), None);
+    /// assert_eq!(session.get_bytes("foo"), Some(&b"bar".to_vec()));
+    /// ```
     pub fn get_bytes(&self, key: &str) -> Option<&Vec<u8>> {
         self.bytes.get(key)
     }
 
     /// Retrieve bytes for the given key.
     /// If the key was occupied, return the previous value.
+    ///
+    /// ```
+    /// use secure_session::session::Session;
+    ///
+    /// let mut session = Session::new();
+    /// assert_eq!(session.insert_bytes("foo", b"bar".to_vec()), None);
+    /// ```
     pub fn insert_bytes(&mut self, key: &str, bytes: Vec<u8>) -> Option<Vec<u8>> {
         self.bytes.insert(key.to_string(), bytes)
     }
 
     /// Remove bytes stored at the given key.
-    pub fn remove_bytes(&mut self, key: &str) {
-        let _ = self.bytes.remove(key);
+    ///
+    /// ```
+    /// use secure_session::session::Session;
+    ///
+    /// let mut session = Session::new();
+    /// assert_eq!(session.remove_bytes("foo"), None);
+    ///
+    /// let _ = session.insert_bytes("foo", b"bar".to_vec());
+    /// assert_eq!(session.remove_bytes("foo"), Some(b"bar".to_vec()));
+    /// ```
+    pub fn remove_bytes(&mut self, key: &str) -> Option<Vec<u8>> {
+        self.bytes.remove(key)
     }
 
     /// Check whether the session contains bytes stored at the given key.
+    ///
+    /// ```
+    /// use secure_session::session::Session;
+    ///
+    /// let mut session = Session::new();
+    /// let _ = session.insert_bytes("foo", b"bar".to_vec());
+    /// assert!(session.contains_key("foo"));
+    /// ```
     pub fn contains_key(&self, key: &str) -> bool {
         self.bytes.contains_key(key)
     }
 
     /// Clears all the values from the session.
+    ///
+    /// ```
+    /// use secure_session::session::Session;
+    ///
+    /// let mut session = Session::new();
+    /// let _ = session.insert_bytes("foo", b"bar".to_vec());
+    /// let _ = session.insert_bytes("wat", b"lol".to_vec());
+    ///
+    /// session.clear();
+    ///
+    /// assert!(!session.contains_key("foo"));
+    /// assert!(!session.contains_key("wat"));
+    /// ```
     pub fn clear(&mut self) {
         self.bytes.clear()
     }
@@ -167,8 +225,6 @@ impl SessionManager for ChaCha20Poly1305SessionManager {
             return Err(SessionError::ValidationError);
         }
 
-        // TODO strip padding
-
         Ok(bincode::deserialize(&plaintext[16..plaintext.len()]).unwrap()) // TODO unwrap
     }
 
@@ -210,25 +266,21 @@ impl SessionManager for ChaCha20Poly1305SessionManager {
         Ok(transport)
     }
 
-    fn is_encrypted(&self) -> bool { true }
+    /// Whether or not the sessions are encrypted.
+    ///
+    /// ```
+    /// use secure_session::session::{ChaCha20Poly1305SessionManager, SessionManager};
+    ///
+    /// let manager = ChaCha20Poly1305SessionManager::from_key(*b"01234567012345670123456701234567");
+    /// assert!(manager.is_encrypted());
+    /// ```
+    fn is_encrypted(&self) -> bool {
+        true
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
-    #[test]
-    fn session_basics() {
-        let mut session = Session::new();
-        let key = "wat";
-        let value = b"lol".to_vec();
-
-        session.insert_bytes(&key, value.clone());
-        assert_eq!(session.get_bytes(&key), Some(&value));
-
-        session.remove_bytes(&key);
-        assert_eq!(session.get_bytes(&key), None);
-    }
 
     macro_rules! test_cases {
         ($strct: ident, $md: ident) => {
