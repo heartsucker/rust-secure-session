@@ -229,5 +229,5 @@ mod tests {
         }
     }
 
-    test_cases!(ChaCha20Poly1305SessionManager, chacha20pol1305);
+    test_cases!(ChaCha20Poly1305SessionManager, chacha20poly1305);
 }

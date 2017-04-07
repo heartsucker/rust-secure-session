@@ -217,8 +217,6 @@ impl SessionManager for ChaCha20Poly1305SessionManager {
 mod tests {
     use super::*;
 
-    const KEY: [u8; 32] = *b"01234567012345670123456701234567";
-
     #[test]
     fn session_basics() {
         let mut session = Session::new();
@@ -232,19 +230,31 @@ mod tests {
         assert_eq!(session.get_bytes(&key), None);
     }
 
-    #[test]
-    fn chacha20poly1305_basics() {
-        let manager = ChaCha20Poly1305SessionManager::from_key(KEY);
-        let mut session = Session::new();
-        let key = "lol".to_string();
-        let value = b"wat".to_vec();
-        assert!(session.insert_bytes(&key, value.clone()).is_none());
+    macro_rules! test_cases {
+        ($strct: ident, $md: ident) => {
+            mod $md  {
+                use $crate::session::{$strct, SessionManager, SessionTransport, Session};
 
-        let transport = SessionTransport { expires: None, session: session };
+                const KEY: [u8; 32] = *b"01234567012345670123456701234567";
 
-        let bytes = manager.serialize(&transport).expect("couldn't serialize");
-        let parsed_transport = manager.deserialize(&bytes).expect("couldn't deserialize");
-        assert_eq!(parsed_transport, transport);
-        assert_eq!(parsed_transport.session.get_bytes(&key), Some(&value));
+                #[test]
+                fn serde_happy_path() {
+                    let manager = $strct::from_key(KEY);
+                    let mut session = Session::new();
+                    let key = "lol".to_string();
+                    let value = b"wat".to_vec();
+                    assert!(session.insert_bytes(&key, value.clone()).is_none());
+
+                    let transport = SessionTransport { expires: None, session: session };
+
+                    let bytes = manager.serialize(&transport).expect("couldn't serialize");
+                    let parsed_transport = manager.deserialize(&bytes).expect("couldn't deserialize");
+                    assert_eq!(parsed_transport, transport);
+                    assert_eq!(parsed_transport.session.get_bytes(&key), Some(&value));
+                }
+            }
+        }
     }
+
+    test_cases!(ChaCha20Poly1305SessionManager, chacha20poly1305);
 }
