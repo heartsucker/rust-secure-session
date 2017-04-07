@@ -182,4 +182,5 @@ macro_rules! benchmark {
     }
 }
 
+benchmark!(AesGcmSessionManager, aesgcm);
 benchmark!(ChaCha20Poly1305SessionManager, chacha20poly1305);

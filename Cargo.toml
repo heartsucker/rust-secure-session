@@ -9,7 +9,7 @@ documentation = "https://docs.rs/secure-session"
 readme = "README.md"
 license = "MIT"
 keywords = [ "iron", "session", "web", "security" ]
-categories = [ "web-programming::http-server", "authentication", "cryptography" ]
+categories = [ "web-programming", "authentication", "cryptography" ]
 
 [badges]
 travis-ci = { repository = "heartsucker/rust-secure-session", branch = "master" }

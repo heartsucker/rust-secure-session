@@ -3,6 +3,8 @@
 use bincode::{self, Infinite};
 use chrono::{DateTime, UTC};
 use crypto::aead::{AeadEncryptor, AeadDecryptor};
+use crypto::aes::KeySize;
+use crypto::aes_gcm::AesGcm;
 use crypto::chacha20poly1305::ChaCha20Poly1305;
 use crypto::scrypt::{scrypt, ScryptParams};
 use ring::rand::SystemRandom;
@@ -279,6 +281,133 @@ impl SessionManager for ChaCha20Poly1305SessionManager {
     }
 }
 
+
+/// Uses the AES-GCM AEAD to provide signed, encrypted sessions.
+pub struct AesGcmSessionManager {
+    rng: SystemRandom,
+    aead_key: [u8; 32],
+}
+
+impl AesGcmSessionManager {
+    /// Using a saved key, generate a `AesGcmSessionManager`.
+    pub fn from_key(aead_key: [u8; 32]) -> Self {
+        AesGcmSessionManager {
+            rng: SystemRandom::new(),
+            aead_key: aead_key,
+        }
+    }
+
+    fn random_bytes(&self, buf: &mut [u8]) -> Result<(), SessionError> {
+        self.rng
+            .fill(buf)
+            .map_err(|_| {
+                warn!("Failed to get random bytes");
+                SessionError::InternalError
+            })
+    }
+
+    fn aead<'a>(&self, nonce: &[u8; 12]) -> AesGcm<'a> {
+        AesGcm::new(KeySize::KeySize256, &self.aead_key, nonce, &[])
+    }
+}
+
+impl SessionManager for AesGcmSessionManager {
+    fn from_password(password: &[u8]) -> Self {
+        let params = if cfg!(test) {
+            // scrypt is *slow*, so use these params for testing
+            ScryptParams::new(1, 8, 1)
+        } else {
+            ScryptParams::new(12, 8, 1)
+        };
+
+        let mut aead_key = [0; 32];
+        info!("Generating key material. This may take some time.");
+        scrypt(password, SCRYPT_SALT, &params, &mut aead_key);
+        info!("Key material generated.");
+
+        AesGcmSessionManager::from_key(aead_key)
+    }
+
+    fn deserialize(&self, bytes: &[u8]) -> Result<SessionTransport, SessionError> {
+        if bytes.len() <= 44 {
+            return Err(SessionError::ValidationError);
+        }
+
+        let mut ciphertext = vec![0; bytes.len() - 28];
+        let mut plaintext = vec![0; bytes.len() - 28];
+        let mut tag = [0; 16];
+        let mut nonce = [0; 12];
+
+        for i in 0..12 {
+            nonce[i] = bytes[i];
+        }
+        for i in 0..16 {
+            tag[i] = bytes[i + 12];
+        }
+        for i in 0..(bytes.len() - 28) {
+            ciphertext[i] = bytes[i + 28];
+        }
+
+        let mut aead = self.aead(&nonce);
+        if !aead.decrypt(&ciphertext, &mut plaintext, &tag) {
+            info!("Failed to decrypt session");
+            return Err(SessionError::ValidationError);
+        }
+
+        Ok(bincode::deserialize(&plaintext[16..plaintext.len()]).unwrap()) // TODO unwrap
+    }
+
+    fn serialize(&self, session: &SessionTransport) -> Result<Vec<u8>, SessionError> {
+        let mut nonce = [0; 12];
+        self.random_bytes(&mut nonce)?;
+
+        let session_bytes = bincode::serialize(&session, Infinite).unwrap(); // TODO unwrap
+        let mut padding = [0; 16];
+        self.random_bytes(&mut padding)?;
+
+        let mut plaintext = vec![0; session_bytes.len() + 16];
+
+        for i in 0..16 {
+            plaintext[i] = padding[i];
+        }
+        for i in 0..session_bytes.len() {
+            plaintext[i + 16] = session_bytes[i];
+        }
+
+        let mut ciphertext = vec![0; plaintext.len()];
+        let mut tag = [0; 16];
+        let mut aead = self.aead(&nonce);
+
+        aead.encrypt(&plaintext, &mut ciphertext, &mut tag);
+
+        let mut transport = vec![0; ciphertext.len() + 28];
+
+        for i in 0..12 {
+            transport[i] = nonce[i];
+        }
+        for i in 0..16 {
+            transport[i + 12] = tag[i];
+        }
+        for i in 0..ciphertext.len() {
+            transport[i + 28] = ciphertext[i];
+        }
+
+        Ok(transport)
+    }
+
+    /// Whether or not the sessions are encrypted.
+    ///
+    /// ```
+    /// use secure_session::session::{AesGcmSessionManager, SessionManager};
+    ///
+    /// let manager = AesGcmSessionManager::from_key(*b"01234567012345670123456701234567");
+    /// assert!(manager.is_encrypted());
+    /// ```
+    fn is_encrypted(&self) -> bool {
+        true
+    }
+}
+
 #[cfg(test)]
 mod tests {
 
@@ -341,5 +470,6 @@ mod tests {
         }
     }
 
+    test_cases!(AesGcmSessionManager, aesgcm);
     test_cases!(ChaCha20Poly1305SessionManager, chacha20poly1305);
 }

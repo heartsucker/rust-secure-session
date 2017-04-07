@@ -75,12 +75,11 @@ impl<S: SessionManager + 'static, H: Handler> Handler for SessionHandler<S, H> {
 
         match session_opt {
             Some(session) => {
-                // TODO set expiry
-                // TODO clone :(
                 let expires =
                     self.config.ttl_seconds.map(|ttl| UTC::now() + Duration::seconds(ttl));
                 let transport = SessionTransport {
                     expires: expires,
+                    // TODO clone :(
                     session: session.clone(),
                 };
                 let session_str =
@@ -260,5 +259,6 @@ mod tests {
         }
     }
 
+    test_cases!(AesGcmSessionManager, aesgcm);
     test_cases!(ChaCha20Poly1305SessionManager, chacha20poly1305);
 }
