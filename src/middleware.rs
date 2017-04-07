@@ -1,6 +1,6 @@
 //! Iron specific middleware and handlers
 
-use chrono::Duration;
+use chrono::{Duration, UTC};
 use cookie::Cookie;
 use iron::headers::{SetCookie, Cookie as IronCookie};
 use iron::middleware::{AroundMiddleware, Handler};
@@ -52,10 +52,15 @@ impl<S: SessionManager + 'static, H: Handler> Handler for SessionHandler<S, H> {
         // before
         {
             let session = self.extract_session_cookie(&request)
-                // TODO error out on deserialization failure
+                // TODO ? error out on deserialization failure
                 .and_then(|c| self.manager.deserialize(&c).ok())
-                // TODO actually check that it is still valid
-                .map(|s| s.session)
+                .and_then(|s| {
+                    match s.expires {
+                        Some(expires) if expires > UTC::now() => Some(s.session),
+                        None => Some(s.session),
+                        _ => None,
+                    }
+                })
                 .unwrap_or(Session::new());
 
             let _ = request.extensions.insert::<Session>(session);
@@ -71,7 +76,8 @@ impl<S: SessionManager + 'static, H: Handler> Handler for SessionHandler<S, H> {
             Some(session) => {
                 // TODO set expiry
                 // TODO clone :(
-                let transport = SessionTransport { expires: None, session: session.clone() };
+                let expires = self.config.ttl_seconds.map(|ttl| UTC::now() + Duration::seconds(ttl));
+                let transport = SessionTransport { expires: expires, session: session.clone() };
                 let session_str =
                     self.manager.serialize(&transport).unwrap().to_base64(base64::STANDARD);
 
@@ -165,3 +171,63 @@ impl SessionConfigBuilder {
     }
 }
 
+
+#[cfg(test)]
+mod tests {
+
+    macro_rules! test_cases {
+        ($strct: ident, $md: ident) => {
+            mod $md  {
+                use cookie::Cookie;
+                use hyper::header::Headers;
+                use iron::headers::{SetCookie, Cookie as IronCookie};
+                use iron::prelude::*;
+                use iron::status;
+                use iron_test::request as mock_request;
+                use std::str;
+
+                use $crate::session::{$strct, Session};
+                use $crate::middleware::{SessionConfig, SessionHandler};
+
+                const KEY_32: [u8; 32] = *b"01234567012345670123456701234567";
+
+                fn mock_handler(request: &mut Request) -> IronResult<Response> {
+                    let session = request.extensions.get_mut::<Session>().expect("no session found");
+
+                    let (message, stat) = match session.get_bytes("message").and_then(|b| str::from_utf8(b).ok()) {
+                        Some(_) => ("SOME", status::Ok),
+                        None => ("NONE", status::NoContent),
+                    };
+
+                    let _ = session.insert_bytes("message", message.as_bytes().to_vec());
+
+                    Ok(Response::with((stat, message)))
+                }
+
+                #[test]
+                fn no_expiry() {
+                    let config = SessionConfig::default();
+                    let manager = $strct::from_key(KEY_32);
+                    let middleware = SessionHandler::new(manager, config, mock_handler);
+
+                    let path = "http://localhost/";
+
+                    let response = mock_request::get(path, Headers::new(), &middleware).expect("request failed");
+                    assert_eq!(response.status, Some(status::NoContent));
+
+                    // get the cookies out
+                    let set_cookie = response.headers.get::<SetCookie>().expect("no SetCookie header");
+                    let cookie = Cookie::parse(set_cookie.0[0].clone()).expect("cookie not parsed");
+                    let mut headers = Headers::new();
+                    headers.set(IronCookie(vec![format!("{}", cookie)]));
+
+                    // resend the request and get a different code back
+                    let response = mock_request::get(path, headers, &middleware).expect("request failed");
+                    assert_eq!(response.status, Some(status::Ok));
+                }
+            }
+        }
+    }
+
+    test_cases!(ChaCha20Poly1305SessionManager, chacha20pol1305);
+}

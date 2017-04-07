@@ -20,7 +20,7 @@ path = "./src/lib.rs"
 
 [dependencies]
 bincode = "1.0.0-alpha6"
-chrono = "0.3"
+chrono = { version = "0.3", features = [ "serde" ] }
 cookie = { version = "0.6", features = [ "percent-encode" ] }
 iron = "0.5"
 log = "0.3"
@@ -32,4 +32,5 @@ serde_derive = "0.9"
 typemap = "0.3"
 
 [dev-dependencies]
+hyper = "0.10"
 iron-test = "0.5"

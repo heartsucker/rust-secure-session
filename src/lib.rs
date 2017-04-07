@@ -6,6 +6,8 @@ extern crate bincode;
 extern crate chrono;
 extern crate cookie;
 extern crate crypto;
+#[cfg(test)]
+extern crate hyper;
 extern crate iron;
 #[cfg(test)]
 extern crate iron_test;

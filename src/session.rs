@@ -1,6 +1,7 @@
 //! Sessions and session management utilities
 
 use bincode::{self, Infinite};
+use chrono::{DateTime, UTC};
 use crypto::aead::{AeadEncryptor, AeadDecryptor};
 use crypto::chacha20poly1305::ChaCha20Poly1305;
 use crypto::scrypt::{scrypt, ScryptParams};
@@ -16,7 +17,7 @@ const SCRYPT_SALT: &'static [u8; 31] = b"rust-secure-session-scrypt-salt";
 // TODO docs ?
 #[derive(Clone, Serialize, Deserialize, Debug, Eq, PartialEq)]
 pub struct SessionTransport {
-    pub expires: Option<i64>, // TODO convert to chrono::DateTime<UTC>
+    pub expires: Option<DateTime<UTC>>,
     pub session: Session,
 }
 
