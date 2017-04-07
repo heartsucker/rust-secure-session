@@ -4,10 +4,9 @@ Encrypted and signed cookie based sessions for Iron.
 
 Documentation is hosted at [docs.rs](https://docs.rs/secure-session/).
 
-## WARNING: Alpha Software
+## Beta Software
 
-This is very unstable right now and is in no way suitable for any sort of production use.
-Use with extreme caution!
+This is still unstable and may not be suitable for production use. Use with caution.
 
 ## Contributing
 

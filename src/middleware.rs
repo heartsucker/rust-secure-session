@@ -196,7 +196,7 @@ mod tests {
                 use std::str;
 
                 use $crate::session::{$strct, Session};
-                use $crate::middleware::{SessionConfig, SessionHandler};
+                use $crate::middleware::{SessionConfig, SessionHandler, SessionConfigBuilder};
 
                 const KEY_32: [u8; 32] = *b"01234567012345670123456701234567";
 
@@ -233,6 +233,28 @@ mod tests {
                     // resend the request and get a different code back
                     let response = mock_request::get(path, headers, &middleware).expect("request failed");
                     assert_eq!(response.status, Some(status::Ok));
+                }
+
+                #[test]
+                fn sessions_expire() {
+                    let config = SessionConfigBuilder::new().ttl_seconds(Some(-1)).finish().unwrap();
+                    let manager = $strct::from_key(KEY_32);
+                    let middleware = SessionHandler::new(manager, config, mock_handler);
+
+                    let path = "http://localhost/";
+
+                    let response = mock_request::get(path, Headers::new(), &middleware).expect("request failed");
+                    assert_eq!(response.status, Some(status::NoContent));
+
+                    // get the cookies out
+                    let set_cookie = response.headers.get::<SetCookie>().expect("no SetCookie header");
+                    let cookie = Cookie::parse(set_cookie.0[0].clone()).expect("cookie not parsed");
+                    let mut headers = Headers::new();
+                    headers.set(IronCookie(vec![format!("{}", cookie)]));
+
+                    // resend the request and get a different code back
+                    let response = mock_request::get(path, headers, &middleware).expect("request failed");
+                    assert_eq!(response.status, Some(status::NoContent));
                 }
             }
         }

@@ -304,6 +304,39 @@ mod tests {
                     assert_eq!(parsed_transport, transport);
                     assert_eq!(parsed_transport.session.get_bytes(&key), Some(&value));
                 }
+
+                #[test]
+                fn serde_bad_data_end() {
+                    let manager = $strct::from_key(KEY);
+                    let mut session = Session::new();
+                    let key = "lol".to_string();
+                    let value = b"wat".to_vec();
+                    assert!(session.insert_bytes(&key, value.clone()).is_none());
+
+                    let transport = SessionTransport { expires: None, session: session };
+
+                    let mut bytes = manager.serialize(&transport).expect("couldn't serialize");
+                    let len = bytes.len();
+                    bytes[len - 1] ^= 0x01;
+
+                    assert!(manager.deserialize(&bytes).is_err());
+                }
+
+                #[test]
+                fn serde_bad_data_start() {
+                    let manager = $strct::from_key(KEY);
+                    let mut session = Session::new();
+                    let key = "lol".to_string();
+                    let value = b"wat".to_vec();
+                    assert!(session.insert_bytes(&key, value.clone()).is_none());
+
+                    let transport = SessionTransport { expires: None, session: session };
+
+                    let mut bytes = manager.serialize(&transport).expect("couldn't serialize");
+                    bytes[0] ^= 0x01;
+
+                    assert!(manager.deserialize(&bytes).is_err());
+                }
             }
         }
     }
