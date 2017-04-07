@@ -3,6 +3,7 @@ extern crate secure_session;
 
 use iron::AroundMiddleware;
 use iron::headers::ContentType;
+use iron::method::Method;
 use iron::prelude::*;
 use iron::status;
 use std::io::Read;
@@ -25,47 +26,40 @@ fn main() {
     Iron::new(handler).http("localhost:8080").unwrap();
 }
 
-// This is a stupid, mess of a function, but that's what happens when you just try to cram
-// everything in to make the example work
 fn index(request: &mut Request) -> IronResult<Response> {
-    let msg = match request.extensions.get_mut::<Session>() {
-        Some(mut session) => {
-            let message = match session.get_bytes("message".to_string())
-                .and_then(|b| str::from_utf8(b).ok()) {
-                Some(message) => message.to_string(),
+    let message = match request.method {
+        Method::Post => {
+            let session = request.extensions.get_mut::<Session>().unwrap();
+            let (message, insert) = match session.get_bytes("message").and_then(|b| str::from_utf8(b).ok()) {
+                Some(message) => (message.to_string(), false),
                 None => {
                     let mut body = String::new();
                     let _ = request.body.read_to_string(&mut body).unwrap();
                     if body.len() > 8 {
-                        body[8..body.len()].to_string()
+                        (body[8..body.len()].to_string(), true)
                     } else {
-                        "message too short!".to_string()
+                        ("message too short!".to_string(), false)
                     }
                 }
             };
-            session.set_bytes("message".to_string(), message.clone().into_bytes());
+
+            if insert {
+                session.insert_bytes("message", message.as_bytes().to_vec());
+            }
+
             message
-        }
-        None => {
-            let mut body = String::new();
-            let _ = request.body.read_to_string(&mut body).unwrap();
-            if body.len() > 8 {
-                let message = body[8..body.len()].to_string();
-                message
-            } else {
-                "no session yet!".to_string()
+        },
+        _ => {
+            let session = request.extensions.get_mut::<Session>().unwrap();
+            match session.get_bytes("message").and_then(|b| str::from_utf8(b).ok()) {
+                Some(message) => message.to_string(),
+                None => "no session message yet".to_string(),
             }
         }
     };
 
-    if msg != "no session yet!" {
-        let mut session = Session::new();
-        session.set_bytes("message".to_string(), msg.clone().into_bytes());
-        request.extensions.insert::<Session>(session);
-    }
-
     // in the real world, one would use something like handlebars instead of this hackiness
-    let html = include_str!("./index.html").replace("SESSION_MESSAGE", &msg);
+    let html = include_str!("./index.html").replace("SESSION_MESSAGE", &message);
 
     let mut response = Response::with((status::Ok, html));
     response.headers.set(ContentType::html());

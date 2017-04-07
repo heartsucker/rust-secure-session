@@ -10,44 +10,61 @@ use typemap;
 
 use error::SessionError;
 
-const SCRYPT_SALT: &[u8; 31] = b"rust-secure-session-scrypt-salt";
+const SCRYPT_SALT: &'static [u8; 31] = b"rust-secure-session-scrypt-salt";
+
+
+// TODO docs ?
+#[derive(Clone, Serialize, Deserialize, Debug, Eq, PartialEq)]
+pub struct SessionTransport {
+    pub expires: Option<i64>, // TODO convert to chrono::DateTime<UTC>
+    pub session: Session,
+}
+
 
 /// Persistent session passed to client as a cookie.
 #[derive(Clone, Serialize, Deserialize, Debug, Eq, PartialEq)]
 pub struct Session {
-    expires: Option<i64>, // TODO
-    map: HashMap<String, Vec<u8>>,
+    bytes: HashMap<String, Vec<u8>>,
 }
 
 impl Session {
     /// Create an empty session.
     pub fn new() -> Self {
         Session {
-            expires: None,
-            map: HashMap::new(),
+            bytes: HashMap::new(),
         }
     }
 
     /// Store bytes for the given key.
-    pub fn get_bytes(&self, key: String) -> Option<&Vec<u8>> {
-        self.map.get(&key)
+    pub fn get_bytes(&self, key: &str) -> Option<&Vec<u8>> {
+        self.bytes.get(key)
     }
 
     /// Retrieve bytes for the given key.
-    pub fn set_bytes(&mut self, key: String, bytes: Vec<u8>) {
-        let _ = self.map.insert(key, bytes);
+    /// If the key was occupied, return the previous value.
+    pub fn insert_bytes(&mut self, key: &str, bytes: Vec<u8>) -> Option<Vec<u8>> {
+        self.bytes.insert(key.to_string(), bytes)
     }
 
     /// Remove bytes stored at the given key.
-    pub fn remove(&mut self, key: String) {
-        let _ = self.map.remove(&key);
+    pub fn remove_bytes(&mut self, key: &str) {
+        let _ = self.bytes.remove(key);
+    }
+
+    /// Check whether the session contains bytes stored at the given key.
+    pub fn contains_key(&self, key: &str) -> bool {
+        self.bytes.contains_key(key)
+    }
+
+    /// Clears all the values from the session.
+    pub fn clear(&mut self) {
+        self.bytes.clear()
     }
 }
 
 impl typemap::Key for Session {
     type Value = Session;
 }
-
 
 /// Base trait that provides session management.
 pub trait SessionManager: Send + Sync {
@@ -58,19 +75,19 @@ pub trait SessionManager: Send + Sync {
     /// This function may panic if the underlying crypto library fails catastrophically.
     fn from_password(password: &[u8]) -> Self;
 
-    /// Given a slice of bytes perform the following options to convert it into a `Session`:
+    /// Given a slice of bytes perform the following options to convert it into a `SessionTransport`:
     ///
     ///   * Decrypt (optional)
     ///   * Verify signature / MAC
-    ///   * Parse / deserialize into a `Session` struct
-    fn deserialize(&self, bytes: &[u8]) -> Result<Session, SessionError>;
+    ///   * Parse / deserialize into a `SessionTransport` struct
+    fn deserialize(&self, bytes: &[u8]) -> Result<SessionTransport, SessionError>;
 
-    /// Given a session perform the following options to convert it into a bytes:
+    /// Given a session perform the following options to convert a `SessionTransport ` into bytes:
     ///
     ///   * Encrypt (optional)
     ///   * Sign / MAC
     ///   * Encode / serialize into bytes
-    fn serialize(&self, session: &Session) -> Result<Vec<u8>, SessionError>;
+    fn serialize(&self, session: &SessionTransport) -> Result<Vec<u8>, SessionError>;
 
     /// Whether or not the sessions are encrypted.
     fn is_encrypted(&self) -> bool;
@@ -123,7 +140,7 @@ impl SessionManager for ChaCha20Poly1305SessionManager {
         ChaCha20Poly1305SessionManager::from_key(aead_key)
     }
 
-    fn deserialize(&self, bytes: &[u8]) -> Result<Session, SessionError> {
+    fn deserialize(&self, bytes: &[u8]) -> Result<SessionTransport, SessionError> {
         if bytes.len() <= 40 {
             return Err(SessionError::ValidationError);
         }
@@ -154,7 +171,7 @@ impl SessionManager for ChaCha20Poly1305SessionManager {
         Ok(bincode::deserialize(&plaintext[16..plaintext.len()]).unwrap()) // TODO unwrap
     }
 
-    fn serialize(&self, session: &Session) -> Result<Vec<u8>, SessionError> {
+    fn serialize(&self, session: &SessionTransport) -> Result<Vec<u8>, SessionError> {
         let mut nonce = [0; 8];
         self.random_bytes(&mut nonce)?;
 
@@ -204,14 +221,14 @@ mod tests {
     #[test]
     fn session_basics() {
         let mut session = Session::new();
-        let key = "wat".to_string();
+        let key = "wat";
         let value = b"lol".to_vec();
 
-        session.set_bytes(key.clone(), value.clone());
-        assert_eq!(session.get_bytes(key.clone()), Some(&value));
+        session.insert_bytes(&key, value.clone());
+        assert_eq!(session.get_bytes(&key), Some(&value));
 
-        session.remove(key.clone());
-        assert_eq!(session.get_bytes(key.clone()), None);
+        session.remove_bytes(&key);
+        assert_eq!(session.get_bytes(&key), None);
     }
 
     #[test]
@@ -220,11 +237,13 @@ mod tests {
         let mut session = Session::new();
         let key = "lol".to_string();
         let value = b"wat".to_vec();
-        session.set_bytes(key.clone(), value.clone());
+        assert!(session.insert_bytes(&key, value.clone()).is_none());
 
-        let bytes = manager.serialize(&session).expect("couldn't serialize");
-        let parsed_session = manager.deserialize(&bytes).expect("couldn't deserialize");
-        assert_eq!(parsed_session, session);
-        assert_eq!(parsed_session.get_bytes(key), Some(&value));
+        let transport = SessionTransport { expires: None, session: session };
+
+        let bytes = manager.serialize(&transport).expect("couldn't serialize");
+        let parsed_transport = manager.deserialize(&bytes).expect("couldn't deserialize");
+        assert_eq!(parsed_transport, transport);
+        assert_eq!(parsed_transport.session.get_bytes(&key), Some(&value));
     }
 }

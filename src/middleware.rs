@@ -8,7 +8,7 @@ use iron::prelude::*;
 use rustc_serialize::base64::{self, ToBase64, FromBase64};
 
 use super::SESSION_COOKIE_NAME;
-use session::{SessionManager, Session};
+use session::{SessionManager, Session, SessionTransport};
 
 struct SessionHandler<S: SessionManager, H: Handler> {
     manager: S,
@@ -50,15 +50,15 @@ impl<S: SessionManager, H: Handler> SessionHandler<S, H> {
 impl<S: SessionManager + 'static, H: Handler> Handler for SessionHandler<S, H> {
     fn handle(&self, mut request: &mut Request) -> IronResult<Response> {
         // before
-        let session_opt = self.extract_session_cookie(&request)
-            // TODO error out on deserialization failure
-            .and_then(|c| self.manager.deserialize(&c).ok());
+        {
+            let session = self.extract_session_cookie(&request)
+                // TODO error out on deserialization failure
+                .and_then(|c| self.manager.deserialize(&c).ok())
+                // TODO actually check that it is still valid
+                .map(|s| s.session)
+                .unwrap_or(Session::new());
 
-        match session_opt {
-            Some(session) => {
-                let _ = request.extensions.insert::<Session>(session);
-            }
-            None => {}
+            let _ = request.extensions.insert::<Session>(session);
         }
 
         // main
@@ -67,11 +67,13 @@ impl<S: SessionManager + 'static, H: Handler> Handler for SessionHandler<S, H> {
         // after
         let session_opt = request.extensions.get::<Session>();
 
-        match session_opt {
+        match session_opt  {
             Some(session) => {
-                // TODO unwrap
+                // TODO set expiry
+                // TODO clone :(
+                let transport = SessionTransport { expires: None, session: session.clone() };
                 let session_str =
-                    self.manager.serialize(&session).unwrap().to_base64(base64::STANDARD);
+                    self.manager.serialize(&transport).unwrap().to_base64(base64::STANDARD);
 
                 let cookie = Cookie::build(SESSION_COOKIE_NAME, session_str)
                     // TODO config for path
