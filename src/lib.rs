@@ -1,5 +1,8 @@
 //! Signed, encrypted session cookies for Iron.
 //!
+//! A more complete reference implementation can be found on
+//! [github](https://github.com/heartsucker/iron-reference).
+//!
 //! # Hello, Secure Session!
 //!
 //! ```

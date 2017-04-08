@@ -4,6 +4,11 @@ Encrypted and signed cookie based sessions for Iron.
 
 Documentation is hosted at [docs.rs](https://docs.rs/secure-session/).
 
+There is an example `iron` server in the directory [./examples](./examples), and more
+information can be found in the docs hosted at [docs.rs](https://docs.rs/secure-session/).
+a complete reference implementation can be found on
+[github](https://github.com/heartsucker/iron-reference).
+
 ## Beta Software
 
 This is still unstable and may not be suitable for production use. Use with caution.
