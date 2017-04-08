@@ -1,5 +1,9 @@
 extern crate iron;
 extern crate secure_session;
+extern crate serde;
+#[macro_use]
+extern crate serde_derive;
+extern crate typemap;
 
 use iron::AroundMiddleware;
 use iron::headers::ContentType;
@@ -10,14 +14,15 @@ use std::io::Read;
 use std::str;
 
 use secure_session::middleware::{SessionMiddleware, SessionConfig};
-use secure_session::session::{Session, SessionManager, ChaCha20Poly1305SessionManager};
+use secure_session::session::{SessionManager, ChaCha20Poly1305SessionManager};
 
 fn main() {
     // initialize the session manager
     let password = b"very-very-secret";
-    let manager = ChaCha20Poly1305SessionManager::from_password(password);
+    let manager = ChaCha20Poly1305SessionManager::<Session>::from_password(password);
     let config = SessionConfig::default();
-    let middleware = SessionMiddleware::new(manager, config);
+    let middleware =
+        SessionMiddleware::<Session, SessionKey, ChaCha20Poly1305SessionManager<Session>>::new(manager, config);
 
     // wrap the routes
     let handler = middleware.around(Box::new(index));
@@ -29,15 +34,12 @@ fn main() {
 fn index(request: &mut Request) -> IronResult<Response> {
     let message = match request.method {
         Method::Post => {
-            let session = request.extensions.get_mut::<Session>().unwrap();
-
-            // grab the message from the session and whether to update or not
-            let (message, insert) = match session.get_bytes("message")
-                .and_then(|b| str::from_utf8(b).ok()) {
-                Some(message) => (message.to_string(), false),
+            let (message, insert) = match request.extensions.remove::<SessionKey>() {
+                Some(data) => (data.message, false),
                 None => {
                     let mut body = String::new();
                     let _ = request.body.read_to_string(&mut body).unwrap();
+                    // do the laziest parsing ever because I don't want to pull in another crate
                     if body.len() > 8 {
                         // return (msg, true) because we only update if the message wasn't there
                         (body[8..body.len()].to_string(), true)
@@ -49,17 +51,14 @@ fn index(request: &mut Request) -> IronResult<Response> {
 
             // only update if the message was never seen before
             if insert {
-                session.insert_bytes("message", message.as_bytes().to_vec());
+                let _ = request.extensions.insert::<SessionKey>(Session { message: message.clone() });
             }
 
             message
         }
         _ => {
-            let session = request.extensions.get_mut::<Session>().unwrap();
-
-            // select the message to display
-            match session.get_bytes("message").and_then(|b| str::from_utf8(b).ok()) {
-                Some(message) => message.to_string(),
+            match request.extensions.get::<SessionKey>() {
+                Some(ref data) => data.message.clone(),
                 None => "no session message yet".to_string(),
             }
         }
@@ -71,4 +70,15 @@ fn index(request: &mut Request) -> IronResult<Response> {
     response.headers.set(ContentType::html());
 
     Ok(response)
+}
+
+#[derive(Serialize, Deserialize)]
+struct Session {
+    message: String,
+}
+
+struct SessionKey {}
+
+impl typemap::Key for SessionKey {
+    type Value = Session;
 }

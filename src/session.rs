@@ -1,4 +1,4 @@
-//! Sessions and session management utilities
+//! Sessions and session management utilities.
 
 use bincode::{self, Infinite};
 use chrono::{DateTime, UTC};
@@ -8,127 +8,26 @@ use crypto::aes_gcm::AesGcm;
 use crypto::chacha20poly1305::ChaCha20Poly1305;
 use crypto::scrypt::{scrypt, ScryptParams};
 use ring::rand::SystemRandom;
-use std::collections::HashMap;
-use typemap;
+use serde::de::Deserialize;
+use serde::ser::Serialize;
+use std::marker::PhantomData;
 
 use error::SessionError;
 
 const SCRYPT_SALT: &'static [u8; 31] = b"rust-secure-session-scrypt-salt";
 
-
-/// Container for serializing and deserializing the session when sending it to and receiving it
-/// from a client.
-#[derive(Clone, Serialize, Deserialize, Debug, Eq, PartialEq)]
-pub struct SessionTransport {
-    /// Optional UTC timestamp for when the session expires.
+/// A session with an exipiration date and optional value.
+#[derive(Clone, Serialize, Deserialize, Eq, PartialEq)]
+pub struct Session<V: Serialize + Deserialize> {
+    /// The UTC timestamp when the session expires.
     pub expires: Option<DateTime<UTC>>,
-    /// The session that was deserialized or will be serialized.
-    pub session: Session,
+    /// The value of the session.
+    pub value: Option<V>,
 }
 
-
-/// Persistent session passed to client as a cookie.
-///
-/// ```
-/// use secure_session::session::Session;
-///
-/// let mut session = Session::new();
-/// assert_eq!(session.insert_bytes("foo", b"bar".to_vec()), None);
-/// assert_eq!(session.get_bytes("foo"), Some(&b"bar".to_vec()));
-///
-/// session.clear();
-/// assert_eq!(session.get_bytes("foo"), None);
-/// ```
-#[derive(Clone, Serialize, Deserialize, Debug, Eq, PartialEq)]
-pub struct Session {
-    bytes: HashMap<String, Vec<u8>>,
-}
-
-impl Session {
-    /// Create an empty session.
-    pub fn new() -> Self {
-        Session { bytes: HashMap::new() }
-    }
-
-    /// Store bytes for the given key.
-    ///
-    /// ```
-    /// use secure_session::session::Session;
-    ///
-    /// let mut session = Session::new();
-    /// assert_eq!(session.insert_bytes("foo", b"bar".to_vec()), None);
-    /// assert_eq!(session.get_bytes("foo"), Some(&b"bar".to_vec()));
-    /// ```
-    pub fn get_bytes(&self, key: &str) -> Option<&Vec<u8>> {
-        self.bytes.get(key)
-    }
-
-    /// Retrieve bytes for the given key.
-    /// If the key was occupied, return the previous value.
-    ///
-    /// ```
-    /// use secure_session::session::Session;
-    ///
-    /// let mut session = Session::new();
-    /// assert_eq!(session.insert_bytes("foo", b"bar".to_vec()), None);
-    /// ```
-    pub fn insert_bytes(&mut self, key: &str, bytes: Vec<u8>) -> Option<Vec<u8>> {
-        self.bytes.insert(key.to_string(), bytes)
-    }
-
-    /// Remove bytes stored at the given key.
-    ///
-    /// ```
-    /// use secure_session::session::Session;
-    ///
-    /// let mut session = Session::new();
-    /// assert_eq!(session.remove_bytes("foo"), None);
-    ///
-    /// let _ = session.insert_bytes("foo", b"bar".to_vec());
-    /// assert_eq!(session.remove_bytes("foo"), Some(b"bar".to_vec()));
-    /// ```
-    pub fn remove_bytes(&mut self, key: &str) -> Option<Vec<u8>> {
-        self.bytes.remove(key)
-    }
-
-    /// Check whether the session contains bytes stored at the given key.
-    ///
-    /// ```
-    /// use secure_session::session::Session;
-    ///
-    /// let mut session = Session::new();
-    /// let _ = session.insert_bytes("foo", b"bar".to_vec());
-    /// assert!(session.contains_key("foo"));
-    /// ```
-    pub fn contains_key(&self, key: &str) -> bool {
-        self.bytes.contains_key(key)
-    }
-
-    /// Clears all the values from the session.
-    ///
-    /// ```
-    /// use secure_session::session::Session;
-    ///
-    /// let mut session = Session::new();
-    /// let _ = session.insert_bytes("foo", b"bar".to_vec());
-    /// let _ = session.insert_bytes("wat", b"lol".to_vec());
-    ///
-    /// session.clear();
-    ///
-    /// assert!(!session.contains_key("foo"));
-    /// assert!(!session.contains_key("wat"));
-    /// ```
-    pub fn clear(&mut self) {
-        self.bytes.clear()
-    }
-}
-
-impl typemap::Key for Session {
-    type Value = Session;
-}
 
 /// Base trait that provides session management.
-pub trait SessionManager: Send + Sync {
+pub trait SessionManager<V: Serialize + Deserialize>: Send + Sync {
     /// Using `scrypt` with params `n=12`, `r=8`, `p=1`, generate the key material used for the
     /// underlying crypto functions.
     ///
@@ -136,19 +35,19 @@ pub trait SessionManager: Send + Sync {
     /// This function may panic if the underlying crypto library fails catastrophically.
     fn from_password(password: &[u8]) -> Self;
 
-    /// Given a slice of bytes perform the following options to convert it into a `SessionTransport`:
+    /// Given a slice of bytes perform the following options to convert it into a `Session`:
     ///
     ///   * Decrypt (optional)
     ///   * Verify signature / MAC
-    ///   * Parse / deserialize into a `SessionTransport` struct
-    fn deserialize(&self, bytes: &[u8]) -> Result<SessionTransport, SessionError>;
+    ///   * Parse / deserialize into a `Session` struct
+    fn deserialize(&self, bytes: &[u8]) -> Result<Session<V>, SessionError>;
 
-    /// Given a session perform the following options to convert a `SessionTransport ` into bytes:
+    /// Given a session perform the following options to convert a `Session` into bytes:
     ///
+    ///   * Encode / serialize into bytes
     ///   * Encrypt (optional)
     ///   * Sign / MAC
-    ///   * Encode / serialize into bytes
-    fn serialize(&self, session: &SessionTransport) -> Result<Vec<u8>, SessionError>;
+    fn serialize(&self, session: &Session<V>) -> Result<Vec<u8>, SessionError>;
 
     /// Whether or not the sessions are encrypted.
     fn is_encrypted(&self) -> bool;
@@ -156,17 +55,19 @@ pub trait SessionManager: Send + Sync {
 
 
 /// Uses the ChaCha20Poly1305 AEAD to provide signed, encrypted sessions.
-pub struct ChaCha20Poly1305SessionManager {
+pub struct ChaCha20Poly1305SessionManager<V: Serialize + Deserialize> {
     rng: SystemRandom,
     aead_key: [u8; 32],
+    _value: PhantomData<V>,
 }
 
-impl ChaCha20Poly1305SessionManager {
+impl<V: Serialize + Deserialize> ChaCha20Poly1305SessionManager<V> {
     /// Using a saved key, generate a `ChaCha20Poly1305SessionManager`.
     pub fn from_key(aead_key: [u8; 32]) -> Self {
         ChaCha20Poly1305SessionManager {
             rng: SystemRandom::new(),
             aead_key: aead_key,
+            _value: PhantomData,
         }
     }
 
@@ -184,7 +85,7 @@ impl ChaCha20Poly1305SessionManager {
     }
 }
 
-impl SessionManager for ChaCha20Poly1305SessionManager {
+impl<V: Serialize + Deserialize + Send + Sync> SessionManager<V> for ChaCha20Poly1305SessionManager<V> {
     fn from_password(password: &[u8]) -> Self {
         let params = if cfg!(test) {
             // scrypt is *slow*, so use these params for testing
@@ -201,7 +102,7 @@ impl SessionManager for ChaCha20Poly1305SessionManager {
         ChaCha20Poly1305SessionManager::from_key(aead_key)
     }
 
-    fn deserialize(&self, bytes: &[u8]) -> Result<SessionTransport, SessionError> {
+    fn deserialize(&self, bytes: &[u8]) -> Result<Session<V>, SessionError> {
         if bytes.len() <= 40 {
             return Err(SessionError::ValidationError);
         }
@@ -234,7 +135,7 @@ impl SessionManager for ChaCha20Poly1305SessionManager {
             })
     }
 
-    fn serialize(&self, session: &SessionTransport) -> Result<Vec<u8>, SessionError> {
+    fn serialize(&self, session: &Session<V>) -> Result<Vec<u8>, SessionError> {
         let mut nonce = [0; 8];
         self.random_bytes(&mut nonce)?;
 
@@ -277,14 +178,7 @@ impl SessionManager for ChaCha20Poly1305SessionManager {
         Ok(transport)
     }
 
-    /// Whether or not the sessions are encrypted.
-    ///
-    /// ```
-    /// use secure_session::session::{ChaCha20Poly1305SessionManager, SessionManager};
-    ///
-    /// let manager = ChaCha20Poly1305SessionManager::from_key(*b"01234567012345670123456701234567");
-    /// assert!(manager.is_encrypted());
-    /// ```
+    /// Whether or not the sessions are encrypted: `true`
     fn is_encrypted(&self) -> bool {
         true
     }
@@ -292,17 +186,19 @@ impl SessionManager for ChaCha20Poly1305SessionManager {
 
 
 /// Uses the AES-GCM AEAD to provide signed, encrypted sessions.
-pub struct AesGcmSessionManager {
+pub struct AesGcmSessionManager<V: Serialize + Deserialize> {
     rng: SystemRandom,
     aead_key: [u8; 32],
+    _value: PhantomData<V>,
 }
 
-impl AesGcmSessionManager {
+impl<V: Serialize + Deserialize> AesGcmSessionManager<V> {
     /// Using a saved key, generate a `AesGcmSessionManager`.
     pub fn from_key(aead_key: [u8; 32]) -> Self {
         AesGcmSessionManager {
             rng: SystemRandom::new(),
             aead_key: aead_key,
+            _value: PhantomData,
         }
     }
 
@@ -320,7 +216,7 @@ impl AesGcmSessionManager {
     }
 }
 
-impl SessionManager for AesGcmSessionManager {
+impl<V: Serialize + Deserialize + Send + Sync> SessionManager<V> for AesGcmSessionManager<V> {
     fn from_password(password: &[u8]) -> Self {
         let params = if cfg!(test) {
             // scrypt is *slow*, so use these params for testing
@@ -337,7 +233,7 @@ impl SessionManager for AesGcmSessionManager {
         AesGcmSessionManager::from_key(aead_key)
     }
 
-    fn deserialize(&self, bytes: &[u8]) -> Result<SessionTransport, SessionError> {
+    fn deserialize(&self, bytes: &[u8]) -> Result<Session<V>, SessionError> {
         if bytes.len() <= 44 {
             return Err(SessionError::ValidationError);
         }
@@ -370,7 +266,7 @@ impl SessionManager for AesGcmSessionManager {
             })
     }
 
-    fn serialize(&self, session: &SessionTransport) -> Result<Vec<u8>, SessionError> {
+    fn serialize(&self, session: &Session<V>) -> Result<Vec<u8>, SessionError> {
         let mut nonce = [0; 12];
         self.random_bytes(&mut nonce)?;
 
@@ -413,14 +309,7 @@ impl SessionManager for AesGcmSessionManager {
         Ok(transport)
     }
 
-    /// Whether or not the sessions are encrypted.
-    ///
-    /// ```
-    /// use secure_session::session::{AesGcmSessionManager, SessionManager};
-    ///
-    /// let manager = AesGcmSessionManager::from_key(*b"01234567012345670123456701234567");
-    /// assert!(manager.is_encrypted());
-    /// ```
+    /// Whether or not the sessions are encrypted: `true`
     fn is_encrypted(&self) -> bool {
         true
     }
@@ -432,58 +321,51 @@ mod tests {
     macro_rules! test_cases {
         ($strct: ident, $md: ident) => {
             mod $md  {
-                use $crate::session::{$strct, SessionManager, SessionTransport, Session};
+                use $crate::error::SessionError;
+                use $crate::session::{$strct, SessionManager, Session};
 
                 const KEY: [u8; 32] = *b"01234567012345670123456701234567";
+
+                #[derive(Serialize, Deserialize, Eq, PartialEq, Clone, Debug)]
+                struct Data {
+                    string: String,
+                }
 
                 #[test]
                 fn serde_happy_path() {
                     let manager = $strct::from_key(KEY);
-                    let mut session = Session::new();
-                    let key = "lol".to_string();
-                    let value = b"wat".to_vec();
-                    assert!(session.insert_bytes(&key, value.clone()).is_none());
-
-                    let transport = SessionTransport { expires: None, session: session };
-
-                    let bytes = manager.serialize(&transport).expect("couldn't serialize");
-                    let parsed_transport = manager.deserialize(&bytes).expect("couldn't deserialize");
-                    assert_eq!(parsed_transport, transport);
-                    assert_eq!(parsed_transport.session.get_bytes(&key), Some(&value));
+                    let data = Data { string: "boots and cats".to_string() };
+                    let session = Session { expires: None, value: Some(data.clone()) };
+                    let bytes = manager.serialize(&session).expect("couldn't serialize");
+                    let parsed_session = manager.deserialize(&bytes).expect("couldn't deserialize");
+                    assert_eq!(parsed_session.value, Some(data));
                 }
 
                 #[test]
                 fn serde_bad_data_end() {
                     let manager = $strct::from_key(KEY);
-                    let mut session = Session::new();
-                    let key = "lol".to_string();
-                    let value = b"wat".to_vec();
-                    assert!(session.insert_bytes(&key, value.clone()).is_none());
-
-                    let transport = SessionTransport { expires: None, session: session };
-
-                    let mut bytes = manager.serialize(&transport).expect("couldn't serialize");
+                    let data = Data { string: "boots and cats".to_string() };
+                    let session = Session { expires: None, value: Some(data.clone()) };
+                    let mut bytes = manager.serialize(&session).expect("couldn't serialize");
                     let len = bytes.len();
                     bytes[len - 1] ^= 0x01;
 
-                    assert!(manager.deserialize(&bytes).is_err());
+                    let deserialized: Result<Session<Data>, SessionError> = manager.deserialize(&bytes);
+                    assert!(deserialized.is_err());
                 }
 
                 #[test]
                 fn serde_bad_data_start() {
                     let manager = $strct::from_key(KEY);
-                    let mut session = Session::new();
-                    let key = "lol".to_string();
-                    let value = b"wat".to_vec();
-                    assert!(session.insert_bytes(&key, value.clone()).is_none());
+                    let data = Data { string: "boots and cats".to_string() };
+                    let session = Session { expires: None, value: Some(data.clone()) };
 
-                    let transport = SessionTransport { expires: None, session: session };
-
-                    let mut bytes = manager.serialize(&transport).expect("couldn't serialize");
+                    let mut bytes = manager.serialize(&session).expect("couldn't serialize");
                     bytes[0] ^= 0x01;
 
-                    assert!(manager.deserialize(&bytes).is_err());
-                }
+                    let deserialized: Result<Session<Data>, SessionError> = manager.deserialize(&bytes);
+                    assert!(deserialized.is_err());
+				}
             }
         }
     }
