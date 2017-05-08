@@ -1,6 +1,6 @@
 [package]
 name = "secure-session"
-version = "0.0.5"
+version = "0.0.6"
 authors = [ "heartsucker <heartsucker@autistici.org>" ]
 description = "Signed, encrypted session cookies for Iron"
 homepage = "https://github.com/heartsucker/rust-secure-session"
@@ -20,7 +20,7 @@ path = "./src/lib.rs"
 
 [dependencies]
 bincode = "1.0.0-alpha6"
-chrono = { version = "0.3", features = [ "serde" ] }
+chrono = { version = "= 0.3.0", features = [ "serde" ] }
 cookie = { version = "0.6", features = [ "percent-encode" ] }
 iron = "0.5"
 log = "0.3"
