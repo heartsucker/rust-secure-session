@@ -7,7 +7,7 @@ use crypto::aes::KeySize;
 use crypto::aes_gcm::AesGcm;
 use crypto::chacha20poly1305::ChaCha20Poly1305;
 use crypto::scrypt::{scrypt, ScryptParams};
-use ring::rand::SystemRandom;
+use ring::rand::{SecureRandom, SystemRandom};
 use serde::de::Deserialize;
 use serde::ser::Serialize;
 use std::marker::PhantomData;
