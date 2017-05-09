@@ -6,7 +6,7 @@ Documentation is hosted at [docs.rs](https://docs.rs/secure-session/).
 
 There is an example `iron` server in the directory [./examples](./examples), and more
 information can be found in the docs hosted at [docs.rs](https://docs.rs/secure-session/).
-a complete reference implementation can be found on
+A complete reference implementation can be found on
 [github](https://github.com/heartsucker/iron-reference).
 
 ## Beta Software
