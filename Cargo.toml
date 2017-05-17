@@ -1,6 +1,6 @@
 [package]
 name = "secure-session"
-version = "0.0.7"
+version = "0.1.0"
 authors = [ "heartsucker <heartsucker@autistici.org>" ]
 description = "Signed, encrypted session cookies for Iron"
 homepage = "https://github.com/heartsucker/rust-secure-session"
