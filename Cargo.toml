@@ -13,6 +13,7 @@ categories = [ "web-programming", "authentication", "cryptography" ]
 
 [badges]
 travis-ci = { repository = "heartsucker/rust-secure-session", branch = "master" }
+appveyor = { repository = "heartsucker/rust-secure-session", branch = "master", service = "github" }
 
 [lib]
 name = "secure_session"
