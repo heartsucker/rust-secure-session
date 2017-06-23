@@ -1,12 +1,12 @@
 //! Iron specific middleware and handlers.
 
-use chrono::{Duration, UTC};
+use chrono::{Duration, Utc};
 use cookie::Cookie;
 use iron::headers::{SetCookie, Cookie as IronCookie};
 use iron::middleware::{AroundMiddleware, Handler};
 use iron::prelude::*;
 use rustc_serialize::base64::{self, ToBase64, FromBase64};
-use serde::de::Deserialize;
+use serde::de::DeserializeOwned;
 use serde::ser::Serialize;
 use std::marker::PhantomData;
 use typemap;
@@ -17,7 +17,7 @@ use session::{SessionManager, Session};
 
 
 /// Uses a `SessionManager` to serialize and deserialize cookies during the request/response cycle.
-pub struct SessionHandler<V: Serialize + Deserialize + 'static,
+pub struct SessionHandler<V: Serialize + DeserializeOwned + 'static,
                       K: typemap::Key<Value=V>,
                       S: SessionManager<V>>
 {
@@ -27,7 +27,7 @@ pub struct SessionHandler<V: Serialize + Deserialize + 'static,
     _key: PhantomData<K>,
 }
 
-impl<V: Serialize + Deserialize + 'static,
+impl<V: Serialize + DeserializeOwned + 'static,
      K: typemap::Key<Value=V>,
      S: SessionManager<V>> SessionHandler<V, K, S>
 {
@@ -62,7 +62,7 @@ impl<V: Serialize + Deserialize + 'static,
     }
 }
 
-impl<V: Serialize + Deserialize + 'static,
+impl<V: Serialize + DeserializeOwned + 'static,
      K: typemap::Key<Value=V> + Send + Sync,
      S: SessionManager<V> + 'static> Handler for SessionHandler<V, K, S>
 {
@@ -73,7 +73,7 @@ impl<V: Serialize + Deserialize + 'static,
             .and_then(|c| self.manager.deserialize(&c).ok())
             .and_then(|s| {
                 match s.expires {
-                    Some(expires) if expires > UTC::now() => s.value,
+                    Some(expires) if expires > Utc::now() => s.value,
                     None => s.value,
                     _ => None,
                 }
@@ -88,7 +88,7 @@ impl<V: Serialize + Deserialize + 'static,
         let mut response = self.handler.handle(&mut request)?;
 
         // after
-        let expires = self.config.ttl_seconds.map(|ttl| UTC::now() + Duration::seconds(ttl));
+        let expires = self.config.ttl_seconds.map(|ttl| Utc::now() + Duration::seconds(ttl));
         let session = Session { expires: expires, value: request.extensions.remove::<K>() };
 
         let session_str =
@@ -122,7 +122,7 @@ impl<V: Serialize + Deserialize + 'static,
 }
 
 /// Middleware for automatic session management.
-pub struct SessionMiddleware<V: Serialize + Deserialize + 'static,
+pub struct SessionMiddleware<V: Serialize + DeserializeOwned + 'static,
                              K: typemap::Key<Value=V>,
                              S: SessionManager<V>> {
     manager: S,
@@ -131,7 +131,7 @@ pub struct SessionMiddleware<V: Serialize + Deserialize + 'static,
     _value: PhantomData<V>,
 }
 
-impl<V: Serialize + Deserialize + 'static,
+impl<V: Serialize + DeserializeOwned + 'static,
      K: typemap::Key<Value=V>,
      S: SessionManager<V>> SessionMiddleware<V, K, S> {
     /// Create a new `SessionMiddleware` for the given `SessionManager` and `SessionConfig`.
@@ -145,7 +145,7 @@ impl<V: Serialize + Deserialize + 'static,
     }
 }
 
-impl<V: Serialize + Deserialize + 'static,
+impl<V: Serialize + DeserializeOwned + 'static,
      K: typemap::Key<Value=V>,
      S: SessionManager<V> + 'static> AroundMiddleware for SessionMiddleware<V, K, S>
      where SessionHandler<V, K, S>: Handler

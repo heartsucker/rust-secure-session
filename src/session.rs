@@ -1,14 +1,14 @@
 //! Sessions and session management utilities.
 
 use bincode::{self, Infinite};
-use chrono::{DateTime, UTC};
+use chrono::{DateTime, Utc};
 use crypto::aead::{AeadEncryptor, AeadDecryptor};
 use crypto::aes::KeySize;
 use crypto::aes_gcm::AesGcm;
 use crypto::chacha20poly1305::ChaCha20Poly1305;
 use crypto::scrypt::{scrypt, ScryptParams};
 use ring::rand::{SecureRandom, SystemRandom};
-use serde::de::Deserialize;
+use serde::de::DeserializeOwned;
 use serde::ser::Serialize;
 use std::marker::PhantomData;
 
@@ -18,16 +18,16 @@ const SCRYPT_SALT: &'static [u8; 31] = b"rust-secure-session-scrypt-salt";
 
 /// A session with an exipiration date and optional value.
 #[derive(Clone, Serialize, Deserialize, Eq, PartialEq)]
-pub struct Session<V: Serialize + Deserialize> {
-    /// The UTC timestamp when the session expires.
-    pub expires: Option<DateTime<UTC>>,
+pub struct Session<V> {
+    /// The Utc timestamp when the session expires.
+    pub expires: Option<DateTime<Utc>>,
     /// The value of the session.
     pub value: Option<V>,
 }
 
 
 /// Base trait that provides session management.
-pub trait SessionManager<V: Serialize + Deserialize>: Send + Sync {
+pub trait SessionManager<V: Serialize + DeserializeOwned>: Send + Sync {
     /// Using `scrypt` with params `n=12`, `r=8`, `p=1`, generate the key material used for the
     /// underlying crypto functions.
     ///
@@ -55,13 +55,13 @@ pub trait SessionManager<V: Serialize + Deserialize>: Send + Sync {
 
 
 /// Uses the ChaCha20Poly1305 AEAD to provide signed, encrypted sessions.
-pub struct ChaCha20Poly1305SessionManager<V: Serialize + Deserialize> {
+pub struct ChaCha20Poly1305SessionManager<V: Serialize + DeserializeOwned> {
     rng: SystemRandom,
     aead_key: [u8; 32],
     _value: PhantomData<V>,
 }
 
-impl<V: Serialize + Deserialize> ChaCha20Poly1305SessionManager<V> {
+impl<V: Serialize + DeserializeOwned> ChaCha20Poly1305SessionManager<V> {
     /// Using a saved key, generate a `ChaCha20Poly1305SessionManager`.
     pub fn from_key(aead_key: [u8; 32]) -> Self {
         ChaCha20Poly1305SessionManager {
@@ -85,7 +85,7 @@ impl<V: Serialize + Deserialize> ChaCha20Poly1305SessionManager<V> {
     }
 }
 
-impl<V: Serialize + Deserialize + Send + Sync> SessionManager<V> for ChaCha20Poly1305SessionManager<V> {
+impl<V: Serialize + DeserializeOwned + Send + Sync> SessionManager<V> for ChaCha20Poly1305SessionManager<V> {
     fn from_password(password: &[u8]) -> Self {
         let params = if cfg!(test) {
             // scrypt is *slow*, so use these params for testing
@@ -186,13 +186,13 @@ impl<V: Serialize + Deserialize + Send + Sync> SessionManager<V> for ChaCha20Pol
 
 
 /// Uses the AES-GCM AEAD to provide signed, encrypted sessions.
-pub struct AesGcmSessionManager<V: Serialize + Deserialize> {
+pub struct AesGcmSessionManager<V: Serialize + DeserializeOwned> {
     rng: SystemRandom,
     aead_key: [u8; 32],
     _value: PhantomData<V>,
 }
 
-impl<V: Serialize + Deserialize> AesGcmSessionManager<V> {
+impl<V: Serialize + DeserializeOwned> AesGcmSessionManager<V> {
     /// Using a saved key, generate a `AesGcmSessionManager`.
     pub fn from_key(aead_key: [u8; 32]) -> Self {
         AesGcmSessionManager {
@@ -216,7 +216,7 @@ impl<V: Serialize + Deserialize> AesGcmSessionManager<V> {
     }
 }
 
-impl<V: Serialize + Deserialize + Send + Sync> SessionManager<V> for AesGcmSessionManager<V> {
+impl<V: Serialize + DeserializeOwned + Send + Sync> SessionManager<V> for AesGcmSessionManager<V> {
     fn from_password(password: &[u8]) -> Self {
         let params = if cfg!(test) {
             // scrypt is *slow*, so use these params for testing
