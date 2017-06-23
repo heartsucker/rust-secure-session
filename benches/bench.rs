@@ -24,7 +24,7 @@ fn session_data(x: usize) -> Session<HashMap<String, String>> {
         let _ = map.insert(s.to_string(), str::from_utf8(&[0; 64]).unwrap().to_string());
     }
 
-    let expires = Some(UTC.ymd(2017, 1, 1).and_hms(0, 0, 0));
+    let expires = Some(Utc.ymd(2017, 1, 1).and_hms(0, 0, 0));
     Session { expires: expires, value: Some(map) }
 }
 
