@@ -64,7 +64,7 @@ impl<
     fn handle(&self, mut request: &mut Request) -> IronResult<Response> {
         // before
         match self.extract_session_cookie(&request)
-            // TODO ? error out on deserialization failure
+            // TODO ? error out on deserialization failure and remove cookie since it is invalid
             .and_then(|c| self.manager.deserialize(&c).ok())
             .and_then(|s| {
                 match s.expires {
@@ -107,8 +107,7 @@ impl<
                           None => cookie,
                       }).finish();
 
-        // TODO is this method of formatting dumb?
-        let mut cookies = vec![format!("{}", cookie.encoded())];
+        let mut cookies = vec![cookie.encoded().to_string()];
 
         {
             if let Some(set_cookie) = response.headers.get::<SetCookie>() {
@@ -259,7 +258,7 @@ mod tests {
                     let set_cookie = response.headers.get::<SetCookie>().expect("no SetCookie header");
                     let cookie = Cookie::parse(set_cookie.0[0].clone()).expect("cookie not parsed");
                     let mut headers = Headers::new();
-                    headers.set(IronCookie(vec![format!("{}", cookie)]));
+                    headers.set(IronCookie(vec![cookie.to_string()]));
 
                     // resend the request and get a different code back
                     let response = mock_request::get(path, headers, &middleware).expect("request failed");
@@ -281,7 +280,7 @@ mod tests {
                     let set_cookie = response.headers.get::<SetCookie>().expect("no SetCookie header");
                     let cookie = Cookie::parse(set_cookie.0[0].clone()).expect("cookie not parsed");
                     let mut headers = Headers::new();
-                    headers.set(IronCookie(vec![format!("{}", cookie)]));
+                    headers.set(IronCookie(vec![cookie.to_string()]));
 
                     // resend the request and get a different code back
                     let response = mock_request::get(path, headers, &middleware).expect("request failed");
