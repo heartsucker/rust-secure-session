@@ -17,9 +17,11 @@ use session::{SessionManager, Session};
 
 
 /// Uses a `SessionManager` to serialize and deserialize cookies during the request/response cycle.
-pub struct SessionHandler<V: Serialize + DeserializeOwned + 'static,
-                      K: typemap::Key<Value=V>,
-                      S: SessionManager<V>>
+pub struct SessionHandler<V, K, S>
+where
+    V: Serialize + DeserializeOwned + 'static,
+    K: typemap::Key<Value = V>,
+    S: SessionManager<V>,
 {
     manager: S,
     config: SessionConfig,
@@ -27,10 +29,8 @@ pub struct SessionHandler<V: Serialize + DeserializeOwned + 'static,
     _key: PhantomData<K>,
 }
 
-impl<V: Serialize + DeserializeOwned + 'static,
-     K: typemap::Key<Value=V>,
-     S: SessionManager<V>> SessionHandler<V, K, S>
-{
+impl<V: Serialize + DeserializeOwned + 'static, K: typemap::Key<Value = V>, S: SessionManager<V>>
+    SessionHandler<V, K, S> {
     fn new(manager: S, config: SessionConfig, handler: Box<Handler>) -> Self {
         SessionHandler {
             manager: manager,
@@ -41,33 +41,33 @@ impl<V: Serialize + DeserializeOwned + 'static,
     }
 
     fn extract_session_cookie(&self, request: &Request) -> Option<Vec<u8>> {
-        request.headers
-            .get::<IronCookie>()
-            .and_then(|raw_cookie| {
-                raw_cookie.0
-                    .iter()
-                    .filter_map(|c| {
-                        Cookie::parse_encoded(c.clone())
-                            .ok()
-                            .and_then(|cookie| match cookie.name_value() {
-                                (SESSION_COOKIE_NAME, value) => Some(value.to_string()),
-                                _ => None,
-                            })
-                            .and_then(|c| BASE64.decode(c.as_bytes()).ok())
-                    })
-                    .collect::<Vec<Vec<u8>>>()
-                    .first()
-                    .map(|c| c.clone())
-            })
+        request.headers.get::<IronCookie>().and_then(|raw_cookie| {
+            raw_cookie
+                .0
+                .iter()
+                .filter_map(|c| {
+                    Cookie::parse_encoded(c.clone())
+                        .ok()
+                        .and_then(|cookie| match cookie.name_value() {
+                            (SESSION_COOKIE_NAME, value) => Some(value.to_string()),
+                            _ => None,
+                        })
+                        .and_then(|c| BASE64.decode(c.as_bytes()).ok())
+                })
+                .collect::<Vec<Vec<u8>>>()
+                .first()
+                .map(|c| c.clone())
+        })
     }
 }
 
-impl<V: Serialize + DeserializeOwned + 'static,
-     K: typemap::Key<Value=V> + Send + Sync,
-     S: SessionManager<V> + 'static> Handler for SessionHandler<V, K, S>
-{
+impl<
+    V: Serialize + DeserializeOwned + 'static,
+    K: typemap::Key<Value = V> + Send + Sync,
+    S: SessionManager<V> + 'static,
+> Handler for SessionHandler<V, K, S> {
     fn handle(&self, mut request: &mut Request) -> IronResult<Response> {
-		// before
+        // before
         match self.extract_session_cookie(&request)
             // TODO ? error out on deserialization failure and remove cookie since it is invalid
             .and_then(|c| self.manager.deserialize(&c).ok())
@@ -78,18 +78,23 @@ impl<V: Serialize + DeserializeOwned + 'static,
                     _ => None,
                 }
             }).take() {
-                Some(value) => {
-                    let _ = request.extensions.insert::<K>(value);
-                },
-                None => (),
+            Some(value) => {
+                let _ = request.extensions.insert::<K>(value);
             }
+            None => (),
+        }
 
         // main
         let mut response = self.handler.handle(&mut request)?;
 
         // after
-        let expires = self.config.ttl_seconds.map(|ttl| Utc::now() + Duration::seconds(ttl));
-        let session = Session { expires: expires, value: request.extensions.remove::<K>() };
+        let expires = self.config.ttl_seconds.map(|ttl| {
+            Utc::now() + Duration::seconds(ttl)
+        });
+        let session = Session {
+            expires: expires,
+            value: request.extensions.remove::<K>(),
+        };
 
         let session_str = BASE64.encode(&self.manager.serialize(&session).unwrap());
 
@@ -97,14 +102,13 @@ impl<V: Serialize + DeserializeOwned + 'static,
             // TODO config for path
             .path("/")
             .http_only(true);
-            // TODO .secure(self.config.secure_cookie)
-            // TODO config flag for SameSite
+        // TODO .secure(self.config.secure_cookie)
+        // TODO config flag for SameSite
 
         let cookie = (match self.config.ttl_seconds {
-                Some(ttl) => cookie.max_age(Duration::seconds(ttl)),
-                None => cookie,
-            })
-            .finish();
+                          Some(ttl) => cookie.max_age(Duration::seconds(ttl)),
+                          None => cookie,
+                      }).finish();
 
         let mut cookies = vec![cookie.encoded().to_string()];
 
@@ -115,23 +119,25 @@ impl<V: Serialize + DeserializeOwned + 'static,
         }
         response.headers.set(SetCookie(cookies));
 
-		Ok(response)
+        Ok(response)
     }
 }
 
 /// Middleware for automatic session management.
-pub struct SessionMiddleware<V: Serialize + DeserializeOwned + 'static,
-                             K: typemap::Key<Value=V>,
-                             S: SessionManager<V>> {
+pub struct SessionMiddleware<V, K, S>
+where
+    V: Serialize + DeserializeOwned + 'static,
+    K: typemap::Key<Value = V>,
+    S: SessionManager<V>,
+{
     manager: S,
     config: SessionConfig,
     _key: PhantomData<K>,
     _value: PhantomData<V>,
 }
 
-impl<V: Serialize + DeserializeOwned + 'static,
-     K: typemap::Key<Value=V>,
-     S: SessionManager<V>> SessionMiddleware<V, K, S> {
+impl<V: Serialize + DeserializeOwned + 'static, K: typemap::Key<Value = V>, S: SessionManager<V>>
+    SessionMiddleware<V, K, S> {
     /// Create a new `SessionMiddleware` for the given `SessionManager` and `SessionConfig`.
     pub fn new(manager: S, config: SessionConfig) -> Self {
         SessionMiddleware {
@@ -143,13 +149,20 @@ impl<V: Serialize + DeserializeOwned + 'static,
     }
 }
 
-impl<V: Serialize + DeserializeOwned + 'static,
-     K: typemap::Key<Value=V>,
-     S: SessionManager<V> + 'static> AroundMiddleware for SessionMiddleware<V, K, S>
-     where SessionHandler<V, K, S>: Handler
+impl<
+    V: Serialize + DeserializeOwned + 'static,
+    K: typemap::Key<Value = V>,
+    S: SessionManager<V> + 'static,
+> AroundMiddleware for SessionMiddleware<V, K, S>
+where
+    SessionHandler<V, K, S>: Handler,
 {
     fn around(self, handler: Box<Handler>) -> Box<Handler> {
-        Box::new(SessionHandler::<V, K, S>::new(self.manager, self.config, handler))
+        Box::new(SessionHandler::<V, K, S>::new(
+            self.manager,
+            self.config,
+            handler,
+        ))
     }
 }
 
@@ -242,43 +255,54 @@ mod tests {
                 fn no_expiry() {
                     let config = SessionConfig::default();
                     let manager = $strct::<Data>::from_key(KEY_32);
-                    let middleware = SessionHandler::<Data, DataKey, $strct<Data>>::new(manager, config, Box::new(mock_handler));
+                    let middleware =
+                        SessionHandler::<Data, DataKey, $strct<Data>>::new(
+                            manager, config, Box::new(mock_handler));
 
                     let path = "http://localhost/";
 
-                    let response = mock_request::get(path, Headers::new(), &middleware).expect("request failed");
+                    let response = mock_request::get(path, Headers::new(), &middleware)
+                        .expect("request failed");
                     assert_eq!(response.status, Some(status::NoContent));
 
                     // get the cookies out
-                    let set_cookie = response.headers.get::<SetCookie>().expect("no SetCookie header");
+                    let set_cookie = response.headers.get::<SetCookie>()
+                        .expect("no SetCookie header");
                     let cookie = Cookie::parse(set_cookie.0[0].clone()).expect("cookie not parsed");
                     let mut headers = Headers::new();
                     headers.set(IronCookie(vec![cookie.to_string()]));
 
                     // resend the request and get a different code back
-                    let response = mock_request::get(path, headers, &middleware).expect("request failed");
+                    let response = mock_request::get(path, headers, &middleware)
+                        .expect("request failed");
                     assert_eq!(response.status, Some(status::Ok));
                 }
 
                 #[test]
                 fn sessions_expire() {
-                    let config = SessionConfigBuilder::new().ttl_seconds(Some(-1)).finish().unwrap();
+                    let config = SessionConfigBuilder::new().ttl_seconds(Some(-1)).finish()
+                        .unwrap();
                     let manager = $strct::<Data>::from_key(KEY_32);
-                    let middleware = SessionHandler::<Data, DataKey, $strct<Data>>::new(manager, config, Box::new(mock_handler));
+                    let middleware =
+                        SessionHandler::<Data, DataKey, $strct<Data>>::new(
+                            manager, config, Box::new(mock_handler));
 
                     let path = "http://localhost/";
 
-                    let response = mock_request::get(path, Headers::new(), &middleware).expect("request failed");
+                    let response = mock_request::get(path, Headers::new(), &middleware)
+                        .expect("request failed");
                     assert_eq!(response.status, Some(status::NoContent));
 
                     // get the cookies out
-                    let set_cookie = response.headers.get::<SetCookie>().expect("no SetCookie header");
+                    let set_cookie = response.headers.get::<SetCookie>()
+                        .expect("no SetCookie header");
                     let cookie = Cookie::parse(set_cookie.0[0].clone()).expect("cookie not parsed");
                     let mut headers = Headers::new();
                     headers.set(IronCookie(vec![cookie.to_string()]));
 
                     // resend the request and get a different code back
-                    let response = mock_request::get(path, headers, &middleware).expect("request failed");
+                    let response = mock_request::get(path, headers, &middleware)
+                        .expect("request failed");
                     assert_eq!(response.status, Some(status::NoContent));
                 }
             }

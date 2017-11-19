@@ -21,8 +21,11 @@ fn main() {
     let password = b"very-very-secret";
     let manager = ChaCha20Poly1305SessionManager::<Session>::from_password(password);
     let config = SessionConfig::default();
-    let middleware =
-        SessionMiddleware::<Session, SessionKey, ChaCha20Poly1305SessionManager<Session>>::new(manager, config);
+    let middleware = SessionMiddleware::<
+        Session,
+        SessionKey,
+        ChaCha20Poly1305SessionManager<Session>,
+    >::new(manager, config);
 
     // wrap the routes
     let handler = middleware.around(Box::new(index));
@@ -51,7 +54,9 @@ fn index(request: &mut Request) -> IronResult<Response> {
 
             // only update if the message was never seen before
             if insert {
-                let _ = request.extensions.insert::<SessionKey>(Session { message: message.clone() });
+                let _ = request.extensions.insert::<SessionKey>(
+                    Session { message: message.clone() },
+                );
             }
 
             message

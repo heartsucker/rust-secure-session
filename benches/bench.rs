@@ -25,7 +25,10 @@ fn session_data(x: usize) -> Session<HashMap<String, String>> {
     }
 
     let expires = Some(Utc.ymd(2017, 1, 1).and_hms(0, 0, 0));
-    Session { expires: expires, value: Some(map) }
+    Session {
+        expires: expires,
+        value: Some(map),
+    }
 }
 
 #[bench]
@@ -41,7 +44,7 @@ fn session_data_deserialize_0_items(b: &mut Bencher) {
     let session = session_data(0);
     let bytes = bincode::serialize(&session, Infinite).expect("failed to serialize");
     b.iter(|| {
-        let _: Session<HashMap<String, String>> = 
+        let _: Session<HashMap<String, String>> =
             bincode::deserialize(&bytes).expect("failed to deserialize");
     });
 }
@@ -59,7 +62,7 @@ fn session_data_deserialize_10_items(b: &mut Bencher) {
     let session = session_data(10);
     let bytes = bincode::serialize(&session, Infinite).expect("failed to serialize");
     b.iter(|| {
-        let _: Session<HashMap<String, String>> = 
+        let _: Session<HashMap<String, String>> =
             bincode::deserialize(&bytes).expect("failed to deserialize");
     });
 }
@@ -77,7 +80,7 @@ fn session_data_deserialize_100_items(b: &mut Bencher) {
     let session = session_data(100);
     let bytes = bincode::serialize(&session, Infinite).expect("failed to serialize");
     b.iter(|| {
-        let _: Session<HashMap<String, String>> = 
+        let _: Session<HashMap<String, String>> =
             bincode::deserialize(&bytes).expect("failed to deserialize");
     });
 }
@@ -95,7 +98,7 @@ fn session_data_deserialize_1000_items(b: &mut Bencher) {
     let session = session_data(1000);
     let bytes = bincode::serialize(&session, Infinite).expect("failed to serialize");
     b.iter(|| {
-        let _: Session<HashMap<String, String>> = 
+        let _: Session<HashMap<String, String>> =
             bincode::deserialize(&bytes).expect("failed to deserialize");
     });
 }
