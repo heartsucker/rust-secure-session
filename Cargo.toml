@@ -1,37 +1,57 @@
 [package]
-name = "secure-session"
-version = "0.2.1"
-authors = [ "heartsucker <heartsucker@autistici.org>" ]
+authors = ["heartsucker <heartsucker@autistici.org>"]
+categories = [
+    "web-programming",
+    "authentication",
+    "cryptography",
+]
 description = "Signed, encrypted session cookies for Iron"
-homepage = "https://github.com/heartsucker/rust-secure-session"
-repository = "https://github.com/heartsucker/rust-secure-session"
 documentation = "https://docs.rs/secure-session"
-readme = "README.md"
+homepage = "https://github.com/heartsucker/rust-secure-session"
+keywords = [
+    "iron",
+    "session",
+    "web",
+    "security",
+]
 license = "MIT"
-keywords = [ "iron", "session", "web", "security" ]
-categories = [ "web-programming", "authentication", "cryptography" ]
+name = "secure-session"
+readme = "README.md"
+repository = "https://github.com/heartsucker/rust-secure-session"
+version = "0.2.1"
 
-[badges]
-travis-ci = { repository = "heartsucker/rust-secure-session", branch = "master" }
-appveyor = { repository = "heartsucker/rust-secure-session", branch = "master", service = "github" }
+[badges.appveyor]
+branch = "master"
+repository = "heartsucker/rust-secure-session"
+service = "github"
+
+[badges.travis-ci]
+branch = "master"
+repository = "heartsucker/rust-secure-session"
+
+[dependencies]
+bincode = "0.8.0"
+iron = "0.5.1"
+log = "0.3.8"
+ring = "0.12.1"
+rust-crypto = "0.2.36"
+rustc-serialize = "0.3.24"
+serde = "1.0.15"
+serde_derive = "1.0.15"
+typemap = "0.3.3"
+
+[dependencies.chrono]
+features = ["serde"]
+version = "0.4.0"
+
+[dependencies.cookie]
+features = ["percent-encode"]
+version = "0.10.0"
+
+[dev-dependencies]
+hyper = "0.10"
+iron-test = "0.5.0"
 
 [lib]
 name = "secure_session"
 path = "./src/lib.rs"
-
-[dependencies]
-bincode = "0.8"
-chrono = { version = "0.4", features = [ "serde" ] }
-cookie = { version = "0.6", features = [ "percent-encode" ] }
-iron = "0.5"
-log = "0.3"
-ring = "0.11"
-rust-crypto = "0.2"
-rustc-serialize = "0.3"
-serde = "1"
-serde_derive = "1"
-typemap = "0.3"
-
-[dev-dependencies]
-hyper = "0.10"
-iron-test = "0.5"

@@ -72,12 +72,10 @@ impl<V: Serialize + DeserializeOwned> ChaCha20Poly1305SessionManager<V> {
     }
 
     fn random_bytes(&self, buf: &mut [u8]) -> Result<(), SessionError> {
-        self.rng
-            .fill(buf)
-            .map_err(|err| {
-                warn!("Failed to get random bytes: {}", err);
-                SessionError::InternalError
-            })
+        self.rng.fill(buf).map_err(|err| {
+            warn!("Failed to get random bytes: {}", err);
+            SessionError::InternalError
+        })
     }
 
     fn aead(&self, nonce: &[u8; 8]) -> ChaCha20Poly1305 {
@@ -85,7 +83,8 @@ impl<V: Serialize + DeserializeOwned> ChaCha20Poly1305SessionManager<V> {
     }
 }
 
-impl<V: Serialize + DeserializeOwned + Send + Sync> SessionManager<V> for ChaCha20Poly1305SessionManager<V> {
+impl<V: Serialize + DeserializeOwned + Send + Sync> SessionManager<V>
+    for ChaCha20Poly1305SessionManager<V> {
     fn from_password(password: &[u8]) -> Self {
         let params = if cfg!(test) {
             // scrypt is *slow*, so use these params for testing
@@ -128,22 +127,20 @@ impl<V: Serialize + DeserializeOwned + Send + Sync> SessionManager<V> for ChaCha
             return Err(SessionError::ValidationError);
         }
 
-        bincode::deserialize(&plaintext[16..plaintext.len()])
-            .map_err(|err| {
-                warn!("Failed to deserialize session: {}", err);
-                SessionError::InternalError
-            })
+        bincode::deserialize(&plaintext[16..plaintext.len()]).map_err(|err| {
+            warn!("Failed to deserialize session: {}", err);
+            SessionError::InternalError
+        })
     }
 
     fn serialize(&self, session: &Session<V>) -> Result<Vec<u8>, SessionError> {
         let mut nonce = [0; 8];
         self.random_bytes(&mut nonce)?;
 
-        let session_bytes = bincode::serialize(&session, Infinite)
-            .map_err(|err| {
-                warn!("Failed to serialize session: {}", err);
-                SessionError::InternalError
-            })?;
+        let session_bytes = bincode::serialize(&session, Infinite).map_err(|err| {
+            warn!("Failed to serialize session: {}", err);
+            SessionError::InternalError
+        })?;
 
         let mut padding = [0; 16];
         self.random_bytes(&mut padding)?;
@@ -203,12 +200,10 @@ impl<V: Serialize + DeserializeOwned> AesGcmSessionManager<V> {
     }
 
     fn random_bytes(&self, buf: &mut [u8]) -> Result<(), SessionError> {
-        self.rng
-            .fill(buf)
-            .map_err(|err| {
-                warn!("Failed to get random bytes: {}", err);
-                SessionError::InternalError
-            })
+        self.rng.fill(buf).map_err(|err| {
+            warn!("Failed to get random bytes: {}", err);
+            SessionError::InternalError
+        })
     }
 
     fn aead<'a>(&self, nonce: &[u8; 12]) -> AesGcm<'a> {
@@ -259,22 +254,20 @@ impl<V: Serialize + DeserializeOwned + Send + Sync> SessionManager<V> for AesGcm
             return Err(SessionError::ValidationError);
         }
 
-        bincode::deserialize(&plaintext[16..plaintext.len()])
-            .map_err(|err| {
-                warn!("Failed to deserialize session: {}", err);
-                SessionError::InternalError
-            })
+        bincode::deserialize(&plaintext[16..plaintext.len()]).map_err(|err| {
+            warn!("Failed to deserialize session: {}", err);
+            SessionError::InternalError
+        })
     }
 
     fn serialize(&self, session: &Session<V>) -> Result<Vec<u8>, SessionError> {
         let mut nonce = [0; 12];
         self.random_bytes(&mut nonce)?;
 
-        let session_bytes = bincode::serialize(&session, Infinite)
-            .map_err(|err| {
-                warn!("Failed to serialize session: {}", err);
-                SessionError::InternalError
-            })?;
+        let session_bytes = bincode::serialize(&session, Infinite).map_err(|err| {
+            warn!("Failed to serialize session: {}", err);
+            SessionError::InternalError
+        })?;
 
         let mut padding = [0; 16];
         self.random_bytes(&mut padding)?;
@@ -365,7 +358,7 @@ mod tests {
 
                     let deserialized: Result<Session<Data>, SessionError> = manager.deserialize(&bytes);
                     assert!(deserialized.is_err());
-				}
+                }
             }
         }
     }
