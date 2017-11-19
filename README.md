@@ -9,10 +9,6 @@ information can be found in the docs hosted at [docs.rs](https://docs.rs/secure-
 A complete reference implementation can be found on
 [github](https://github.com/heartsucker/iron-reference).
 
-## Beta Software
-
-This is still unstable and may not be suitable for production use. Use with caution.
-
 ## Contributing
 
 Please make all pull requests to the `develop` branch.
