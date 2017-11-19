@@ -57,6 +57,7 @@ extern crate bincode;
 extern crate chrono;
 extern crate cookie;
 extern crate crypto;
+extern crate data_encoding;
 #[cfg(test)]
 extern crate hyper;
 extern crate iron;
@@ -64,8 +65,7 @@ extern crate iron;
 extern crate iron_test;
 #[macro_use]
 extern crate log;
-extern crate ring;
-extern crate rustc_serialize;
+extern crate rand;
 extern crate serde;
 #[macro_use]
 extern crate serde_derive;

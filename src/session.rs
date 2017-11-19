@@ -7,7 +7,7 @@ use crypto::aes::KeySize;
 use crypto::aes_gcm::AesGcm;
 use crypto::chacha20poly1305::ChaCha20Poly1305;
 use crypto::scrypt::{scrypt, ScryptParams};
-use ring::rand::{SecureRandom, SystemRandom};
+use rand::{OsRng, Rng};
 use serde::de::DeserializeOwned;
 use serde::ser::Serialize;
 use std::marker::PhantomData;
@@ -56,7 +56,6 @@ pub trait SessionManager<V: Serialize + DeserializeOwned>: Send + Sync {
 
 /// Uses the ChaCha20Poly1305 AEAD to provide signed, encrypted sessions.
 pub struct ChaCha20Poly1305SessionManager<V: Serialize + DeserializeOwned> {
-    rng: SystemRandom,
     aead_key: [u8; 32],
     _value: PhantomData<V>,
 }
@@ -65,19 +64,19 @@ impl<V: Serialize + DeserializeOwned> ChaCha20Poly1305SessionManager<V> {
     /// Using a saved key, generate a `ChaCha20Poly1305SessionManager`.
     pub fn from_key(aead_key: [u8; 32]) -> Self {
         ChaCha20Poly1305SessionManager {
-            rng: SystemRandom::new(),
             aead_key: aead_key,
             _value: PhantomData,
         }
     }
 
     fn random_bytes(&self, buf: &mut [u8]) -> Result<(), SessionError> {
-        self.rng
-            .fill(buf)
-            .map_err(|err| {
-                warn!("Failed to get random bytes: {}", err);
-                SessionError::InternalError
-            })
+        // TODO We had to get rid of `ring` because of `gcc` conflicts with `rust-crypto`, and
+        // `ring`'s RNG didn't require mutability. Now create a new one per call which is not a
+        // great idea.
+        OsRng::new()
+            .map_err(|_| SessionError::InternalError)?
+            .fill_bytes(buf);
+        Ok(())
     }
 
     fn aead(&self, nonce: &[u8; 8]) -> ChaCha20Poly1305 {
@@ -187,7 +186,6 @@ impl<V: Serialize + DeserializeOwned + Send + Sync> SessionManager<V> for ChaCha
 
 /// Uses the AES-GCM AEAD to provide signed, encrypted sessions.
 pub struct AesGcmSessionManager<V: Serialize + DeserializeOwned> {
-    rng: SystemRandom,
     aead_key: [u8; 32],
     _value: PhantomData<V>,
 }
@@ -196,19 +194,19 @@ impl<V: Serialize + DeserializeOwned> AesGcmSessionManager<V> {
     /// Using a saved key, generate a `AesGcmSessionManager`.
     pub fn from_key(aead_key: [u8; 32]) -> Self {
         AesGcmSessionManager {
-            rng: SystemRandom::new(),
             aead_key: aead_key,
             _value: PhantomData,
         }
     }
 
     fn random_bytes(&self, buf: &mut [u8]) -> Result<(), SessionError> {
-        self.rng
-            .fill(buf)
-            .map_err(|err| {
-                warn!("Failed to get random bytes: {}", err);
-                SessionError::InternalError
-            })
+        // TODO We had to get rid of `ring` because of `gcc` conflicts with `rust-crypto`, and
+        // `ring`'s RNG didn't require mutability. Now create a new one per call which is not a
+        // great idea.
+        OsRng::new()
+            .map_err(|_| SessionError::InternalError)?
+            .fill_bytes(buf);
+        Ok(())
     }
 
     fn aead<'a>(&self, nonce: &[u8; 12]) -> AesGcm<'a> {

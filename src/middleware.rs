@@ -2,10 +2,10 @@
 
 use chrono::{Duration, Utc};
 use cookie::Cookie;
+use data_encoding::BASE64;
 use iron::headers::{SetCookie, Cookie as IronCookie};
 use iron::middleware::{AroundMiddleware, Handler};
 use iron::prelude::*;
-use rustc_serialize::base64::{self, ToBase64, FromBase64};
 use serde::de::DeserializeOwned;
 use serde::ser::Serialize;
 use std::marker::PhantomData;
@@ -53,7 +53,7 @@ impl<V: Serialize + DeserializeOwned + 'static,
                                 (SESSION_COOKIE_NAME, value) => Some(value.to_string()),
                                 _ => None,
                             })
-                            .and_then(|c| c.from_base64().ok())
+                            .and_then(|c| BASE64.decode(c.as_bytes()).ok())
                     })
                     .collect::<Vec<Vec<u8>>>()
                     .first()
@@ -91,8 +91,7 @@ impl<V: Serialize + DeserializeOwned + 'static,
         let expires = self.config.ttl_seconds.map(|ttl| Utc::now() + Duration::seconds(ttl));
         let session = Session { expires: expires, value: request.extensions.remove::<K>() };
 
-        let session_str =
-            self.manager.serialize(&session).unwrap().to_base64(base64::STANDARD);
+        let session_str = BASE64.encode(&self.manager.serialize(&session).unwrap());
 
         let cookie = Cookie::build(SESSION_COOKIE_NAME, session_str)
             // TODO config for path

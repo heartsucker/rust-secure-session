@@ -20,14 +20,14 @@ name = "secure_session"
 path = "./src/lib.rs"
 
 [dependencies]
-bincode = "0.8"
+bincode = "0.9"
 chrono = { version = "0.4", features = [ "serde" ] }
-cookie = { version = "0.6", features = [ "percent-encode" ] }
+cookie = { version = "0.10", features = [ "percent-encode" ] }
+data-encoding = "2"
 iron = "0.5"
 log = "0.3"
-ring = "0.11"
+rand = "0.3"
 rust-crypto = "0.2"
-rustc-serialize = "0.3"
 serde = "1"
 serde_derive = "1"
 typemap = "0.3"
