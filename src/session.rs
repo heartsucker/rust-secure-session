@@ -6,15 +6,12 @@ use crypto::aead::{AeadEncryptor, AeadDecryptor};
 use crypto::aes::KeySize;
 use crypto::aes_gcm::AesGcm;
 use crypto::chacha20poly1305::ChaCha20Poly1305;
-use crypto::scrypt::{scrypt, ScryptParams};
 use rand::{OsRng, Rng};
 use serde::de::DeserializeOwned;
 use serde::ser::Serialize;
 use std::marker::PhantomData;
 
 use error::SessionError;
-
-const SCRYPT_SALT: &'static [u8; 31] = b"rust-secure-session-scrypt-salt";
 
 /// A session with an exipiration date and optional value.
 #[derive(Clone, Serialize, Deserialize, Eq, PartialEq)]
@@ -28,13 +25,6 @@ pub struct Session<V> {
 
 /// Base trait that provides session management.
 pub trait SessionManager<V: Serialize + DeserializeOwned>: Send + Sync {
-    /// Using `scrypt` with params `n=12`, `r=8`, `p=1`, generate the key material used for the
-    /// underlying crypto functions.
-    ///
-    /// # Panics
-    /// This function may panic if the underlying crypto library fails catastrophically.
-    fn from_password(password: &[u8]) -> Self;
-
     /// Given a slice of bytes perform the following options to convert it into a `Session`:
     ///
     ///   * Decrypt (optional)
@@ -86,22 +76,6 @@ impl<V: Serialize + DeserializeOwned> ChaCha20Poly1305SessionManager<V> {
 
 impl<V: Serialize + DeserializeOwned + Send + Sync> SessionManager<V>
     for ChaCha20Poly1305SessionManager<V> {
-    fn from_password(password: &[u8]) -> Self {
-        let params = if cfg!(test) {
-            // scrypt is *slow*, so use these params for testing
-            ScryptParams::new(1, 8, 1)
-        } else {
-            ScryptParams::new(12, 8, 1)
-        };
-
-        let mut aead_key = [0; 32];
-        info!("Generating key material. This may take some time.");
-        scrypt(password, SCRYPT_SALT, &params, &mut aead_key);
-        info!("Key material generated.");
-
-        ChaCha20Poly1305SessionManager::from_key(aead_key)
-    }
-
     fn deserialize(&self, bytes: &[u8]) -> Result<Session<V>, SessionError> {
         if bytes.len() <= 40 {
             return Err(SessionError::ValidationError);
@@ -214,22 +188,6 @@ impl<V: Serialize + DeserializeOwned> AesGcmSessionManager<V> {
 }
 
 impl<V: Serialize + DeserializeOwned + Send + Sync> SessionManager<V> for AesGcmSessionManager<V> {
-    fn from_password(password: &[u8]) -> Self {
-        let params = if cfg!(test) {
-            // scrypt is *slow*, so use these params for testing
-            ScryptParams::new(1, 8, 1)
-        } else {
-            ScryptParams::new(12, 8, 1)
-        };
-
-        let mut aead_key = [0; 32];
-        info!("Generating key material. This may take some time.");
-        scrypt(password, SCRYPT_SALT, &params, &mut aead_key);
-        info!("Key material generated.");
-
-        AesGcmSessionManager::from_key(aead_key)
-    }
-
     fn deserialize(&self, bytes: &[u8]) -> Result<Session<V>, SessionError> {
         if bytes.len() <= 44 {
             return Err(SessionError::ValidationError);

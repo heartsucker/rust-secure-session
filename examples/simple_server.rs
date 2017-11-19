@@ -14,12 +14,12 @@ use std::io::Read;
 use std::str;
 
 use secure_session::middleware::{SessionMiddleware, SessionConfig};
-use secure_session::session::{SessionManager, ChaCha20Poly1305SessionManager};
+use secure_session::session::ChaCha20Poly1305SessionManager;
 
 fn main() {
     // initialize the session manager
-    let password = b"very-very-secret";
-    let manager = ChaCha20Poly1305SessionManager::<Session>::from_password(password);
+    let key = *b"01234567012345670123456701234567";
+    let manager = ChaCha20Poly1305SessionManager::<Session>::from_key(key);
     let config = SessionConfig::default();
     let middleware = SessionMiddleware::<
         Session,
