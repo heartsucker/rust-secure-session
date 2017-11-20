@@ -268,16 +268,59 @@ impl<V: Serialize + DeserializeOwned + Send + Sync> SessionManager<V> for AesGcm
     }
 }
 
+/// This is used when one wants to rotate keys or switch from implementation to another. It accepts
+/// `1 + N` instances of `SessionManager<V>` and uses only the first to generate sessions.
+/// All instances are used only for parsing in the order they are passed in to the
+/// `MultiSessionManager`.
+pub struct MultiSessionManager<V: Serialize + DeserializeOwned + Send + Sync> {
+    current: Box<SessionManager<V>>,
+    previous: Vec<Box<SessionManager<V>>>,
+}
+
+impl<V: Serialize + DeserializeOwned + Send + Sync> MultiSessionManager<V> {
+    /// Create a new `MultiSessionManager` from one current `SessionManager` and some `N` previous
+    /// instances of `SessionManager`.
+    pub fn new(current: Box<SessionManager<V>>, previous: Vec<Box<SessionManager<V>>>) -> Self {
+        Self { current, previous }
+    }
+}
+
+impl<V: Serialize + DeserializeOwned + Send + Sync> SessionManager<V> for MultiSessionManager<V> {
+    fn deserialize(&self, bytes: &[u8]) -> Result<Session<V>, SessionError> {
+        match self.current.deserialize(bytes) {
+            ok @ Ok(_) => return ok,
+            Err(_) => {
+                for manager in self.previous.iter() {
+                    match manager.deserialize(bytes) {
+                        ok @ Ok(_) => return ok,
+                        Err(_) => (),
+                    }
+                }
+            }
+        }
+        Err(SessionError::ValidationError)
+    }
+
+    fn serialize(&self, session: &Session<V>) -> Result<Vec<u8>, SessionError> {
+        self.current.serialize(session)
+    }
+
+    fn is_encrypted(&self) -> bool {
+        self.current.is_encrypted()
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    const KEY_1: [u8; 32] = *b"01234567012345670123456701234567";
+    const KEY_2: [u8; 32] = *b"76543210765432107654321076543210";
 
     macro_rules! test_cases {
         ($strct: ident, $md: ident) => {
             mod $md  {
                 use $crate::error::SessionError;
                 use $crate::session::{$strct, SessionManager, Session};
-
-                const KEY: [u8; 32] = *b"01234567012345670123456701234567";
+                use super::KEY_1;
 
                 #[derive(Serialize, Deserialize, Eq, PartialEq, Clone, Debug)]
                 struct Data {
@@ -286,7 +329,7 @@ mod tests {
 
                 #[test]
                 fn serde_happy_path() {
-                    let manager = $strct::from_key(KEY);
+                    let manager = $strct::from_key(KEY_1);
                     let data = Data { string: "boots and cats".to_string() };
                     let session = Session { expires: None, value: Some(data.clone()) };
                     let bytes = manager.serialize(&session).expect("couldn't serialize");
@@ -296,7 +339,7 @@ mod tests {
 
                 #[test]
                 fn serde_bad_data_end() {
-                    let manager = $strct::from_key(KEY);
+                    let manager = $strct::from_key(KEY_1);
                     let data = Data { string: "boots and cats".to_string() };
                     let session = Session { expires: None, value: Some(data.clone()) };
                     let mut bytes = manager.serialize(&session).expect("couldn't serialize");
@@ -310,7 +353,7 @@ mod tests {
 
                 #[test]
                 fn serde_bad_data_start() {
-                    let manager = $strct::from_key(KEY);
+                    let manager = $strct::from_key(KEY_1);
                     let data = Data { string: "boots and cats".to_string() };
                     let session = Session { expires: None, value: Some(data.clone()) };
 
@@ -327,4 +370,88 @@ mod tests {
 
     test_cases!(AesGcmSessionManager, aesgcm);
     test_cases!(ChaCha20Poly1305SessionManager, chacha20poly1305);
+
+    mod multi {
+        macro_rules! test_cases {
+            ($strct1: ident, $strct2: ident, $name: ident) => {
+                mod $name {
+                    use $crate::session::*;
+                    use super::super::{KEY_1, KEY_2};
+
+                    #[derive(Serialize, Deserialize, Eq, PartialEq, Clone, Debug)]
+                    struct Data {
+                        string: String,
+                    }
+
+                    #[test]
+                    fn no_previous() {
+                        let manager = $strct1::from_key(KEY_1);
+                        let mut sessions = vec![];
+
+                        let data = Data { string: "boots and cats".to_string() };
+                        let session = Session { expires: None, value: Some(data.clone()) };
+                        let bytes = manager.serialize(&session).expect("couldn't serialize");
+                        sessions.push(bytes);
+
+                        let multi = MultiSessionManager::new(Box::new(manager), vec![]);
+                        let bytes = multi.serialize(&session).expect("couldn't serialize");
+                        sessions.push(bytes);
+
+                        for session in sessions.iter() {
+                            let parsed_session = multi.deserialize(session).expect("couldn't deserialize");
+                            assert_eq!(parsed_session.value, Some(data.clone()));
+                        }
+                    }
+
+                    #[test]
+                    fn $name() {
+                        let manager_1 = $strct1::from_key(KEY_1);
+                        let manager_2 = $strct2::from_key(KEY_2);
+                        let mut sessions = vec![];
+
+                        let data = Data { string: "boots and cats".to_string() };
+                        let session = Session { expires: None, value: Some(data.clone()) };
+                        let bytes = manager_1.serialize(&session).expect("couldn't serialize");
+                        sessions.push(bytes);
+
+                        let bytes = manager_2.serialize(&session).expect("couldn't serialize");
+                        sessions.push(bytes);
+
+                        let multi = MultiSessionManager::new(Box::new(manager_1), vec![Box::new(manager_2)]);
+                        let bytes = multi.serialize(&session).expect("couldn't serialize");
+                        sessions.push(bytes);
+
+                        for session in sessions.iter() {
+                            let parsed_session = multi.deserialize(session).expect("couldn't deserialize");
+                            assert_eq!(parsed_session.value, Some(data.clone()));
+                        }
+                    }
+                }
+            }
+        }
+
+        test_cases!(
+            AesGcmSessionManager,
+            AesGcmSessionManager,
+            aesgcm_then_aesgcm
+        );
+
+        test_cases!(
+            ChaCha20Poly1305SessionManager,
+            ChaCha20Poly1305SessionManager,
+            chacha20poly1305_then_chacha20poly1305
+        );
+
+        test_cases!(
+            ChaCha20Poly1305SessionManager,
+            AesGcmSessionManager,
+            chacha20poly1305_then_aesgcm
+        );
+
+        test_cases!(
+            AesGcmSessionManager,
+            ChaCha20Poly1305SessionManager,
+            aesgcm_then_chacha20poly1305
+        );
+    }
 }

@@ -168,6 +168,7 @@ where
 
 
 /// Configuration of how sessions and session cookies are created and validated.
+#[derive(Clone)]
 pub struct SessionConfig {
     ttl_seconds: Option<i64>,
 }
@@ -187,6 +188,7 @@ impl Default for SessionConfig {
 
 
 /// A utility to help build a `SessionConfig` in an API backwards compatible way.
+#[derive(Clone)]
 pub struct SessionConfigBuilder {
     config: SessionConfig,
 }
@@ -211,6 +213,38 @@ impl SessionConfigBuilder {
 
 #[cfg(test)]
 mod tests {
+    use hyper::header::Headers;
+    use iron::headers::{SetCookie, Cookie as IronCookie};
+    use iron::prelude::*;
+    use iron::status;
+    use iron_test::request as mock_request;
+    use typemap;
+    use session::{MultiSessionManager, ChaCha20Poly1305SessionManager, AesGcmSessionManager};
+    use super::*;
+
+    const KEY_32: [u8; 32] = *b"01234567012345670123456701234567";
+
+    #[derive(Serialize, Deserialize, Eq, PartialEq, Clone, Debug)]
+    struct Data {
+        string: String,
+    }
+
+    struct DataKey {}
+
+    impl typemap::Key for DataKey {
+        type Value = Data;
+    }
+
+    fn mock_handler(request: &mut Request) -> IronResult<Response> {
+        let stat = match request.extensions.get::<DataKey>() {
+            Some(_) => status::Ok,
+            None => status::NoContent,
+        };
+
+        request.extensions.insert::<DataKey>(Data { string: "wat".to_string() });
+
+        Ok(Response::with((stat, "")))
+    }
 
     macro_rules! test_cases {
         ($strct: ident, $md: ident) => {
@@ -218,38 +252,12 @@ mod tests {
                 use cookie::Cookie;
                 use hyper::header::Headers;
                 use iron::headers::{SetCookie, Cookie as IronCookie};
-                use iron::prelude::*;
                 use iron::status;
                 use iron_test::request as mock_request;
-                use std::str;
-                use typemap;
 
                 use $crate::session::$strct;
                 use $crate::middleware::{SessionConfig, SessionHandler, SessionConfigBuilder};
-
-                const KEY_32: [u8; 32] = *b"01234567012345670123456701234567";
-
-                #[derive(Serialize, Deserialize, Eq, PartialEq, Clone, Debug)]
-                struct Data {
-                    string: String,
-                }
-
-                struct DataKey {}
-
-                impl typemap::Key for DataKey {
-                    type Value = Data;
-                }
-
-                fn mock_handler(request: &mut Request) -> IronResult<Response> {
-                    let stat = match request.extensions.get::<DataKey>() {
-                        Some(_) => status::Ok,
-                        None => status::NoContent,
-                    };
-
-                    request.extensions.insert::<DataKey>(Data { string: "wat".to_string() });
-
-                    Ok(Response::with((stat, "")))
-                }
+                use super::{KEY_32, Data, DataKey, mock_handler};
 
                 #[test]
                 fn no_expiry() {
@@ -311,4 +319,48 @@ mod tests {
 
     test_cases!(AesGcmSessionManager, aesgcm);
     test_cases!(ChaCha20Poly1305SessionManager, chacha20poly1305);
+
+    #[test]
+    fn multisession_and_rotation() {
+        let config = SessionConfig::default();
+
+        let manager_1 = AesGcmSessionManager::<Data>::from_key(KEY_32);
+        let manager_1_clone = AesGcmSessionManager::<Data>::from_key(KEY_32);
+        let middle_1 = SessionMiddleware::<Data, DataKey, AesGcmSessionManager<Data>>::new(
+            manager_1, config.clone());
+        let handler_1 = middle_1.around(Box::new(mock_handler));
+
+        let manager_2 = ChaCha20Poly1305SessionManager::<Data>::from_key(KEY_32);
+        let manager_2_clone = ChaCha20Poly1305SessionManager::<Data>::from_key(KEY_32);
+        let middle_2 = SessionMiddleware::<Data, DataKey, ChaCha20Poly1305SessionManager<Data>>::new(
+            manager_2, config.clone());
+        let handler_2 = middle_2.around(Box::new(mock_handler));
+
+        let multi = MultiSessionManager::<Data>::new(
+            Box::new(manager_2_clone), vec![Box::new(manager_1_clone)]);
+        let multi_middle = SessionMiddleware::<Data, DataKey, MultiSessionManager<Data>>::new(
+            multi, config);
+        let multi_handler = multi_middle.around(Box::new(mock_handler));
+
+        // make a request to the first handler and get the initial session
+        let resp = mock_request::get("http://localhost/", Headers::new(), &handler_1).unwrap();
+        let set_cookie = resp.headers.get::<SetCookie>().expect("no SetCookie header");
+        let cookie = Cookie::parse(set_cookie.0[0].clone()).expect("cookie not parsed");
+
+        // make a request to the multi handler
+        let mut headers = Headers::new();
+        headers.set(IronCookie(vec![cookie.to_string()]));
+        let resp = mock_request::get("http://localhost/", headers, &multi_handler).unwrap();
+        assert_eq!(resp.status, Some(status::Ok));
+
+        // get the cookie back out
+        let set_cookie = resp.headers.get::<SetCookie>().expect("no SetCookie header");
+        let cookie = Cookie::parse(set_cookie.0[0].clone()).expect("cookie not parsed");
+
+        // make a request to the second handler
+        let mut headers = Headers::new();
+        headers.set(IronCookie(vec![cookie.to_string()]));
+        let resp = mock_request::get("http://localhost/", headers, &handler_2).unwrap();
+        assert_eq!(resp.status, Some(status::Ok));
+    }
 }
