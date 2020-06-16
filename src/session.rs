@@ -1,27 +1,25 @@
 //! Sessions and session management utilities.
 
-use bincode::{self, Infinite};
-use chrono::{DateTime, Utc};
-use crypto::aead::{AeadEncryptor, AeadDecryptor};
+use crate::error::SessionError;
+use crypto::aead::{AeadDecryptor, AeadEncryptor};
 use crypto::aes::KeySize;
 use crypto::aes_gcm::AesGcm;
 use crypto::chacha20poly1305::ChaCha20Poly1305;
-use rand::{OsRng, Rng};
+use rand::rngs::OsRng;
+use rand::RngCore;
 use serde::de::DeserializeOwned;
-use serde::ser::Serialize;
+use serde::{Deserialize, Serialize};
 use std::marker::PhantomData;
-
-use error::SessionError;
+use time::OffsetDateTime;
 
 /// A session with an exipiration date and optional value.
 #[derive(Clone, Serialize, Deserialize, Eq, PartialEq)]
 pub struct Session<V> {
     /// The Utc timestamp when the session expires.
-    pub expires: Option<DateTime<Utc>>,
+    pub expires: Option<OffsetDateTime>,
     /// The value of the session.
     pub value: Option<V>,
 }
-
 
 /// Base trait that provides session management.
 pub trait SessionManager<V: Serialize + DeserializeOwned>: Send + Sync {
@@ -43,7 +41,6 @@ pub trait SessionManager<V: Serialize + DeserializeOwned>: Send + Sync {
     fn is_encrypted(&self) -> bool;
 }
 
-
 /// Uses the ChaCha20Poly1305 AEAD to provide signed, encrypted sessions.
 pub struct ChaCha20Poly1305SessionManager<V: Serialize + DeserializeOwned> {
     aead_key: [u8; 32],
@@ -59,14 +56,8 @@ impl<V: Serialize + DeserializeOwned> ChaCha20Poly1305SessionManager<V> {
         }
     }
 
-    fn random_bytes(&self, buf: &mut [u8]) -> Result<(), SessionError> {
-        // TODO We had to get rid of `ring` because of `gcc` conflicts with `rust-crypto`, and
-        // `ring`'s RNG didn't require mutability. Now create a new one per call which is not a
-        // great idea.
-        OsRng::new()
-            .map_err(|_| SessionError::InternalError)?
-            .fill_bytes(buf);
-        Ok(())
+    fn random_bytes(&self, buf: &mut [u8]) {
+        OsRng.fill_bytes(buf);
     }
 
     fn aead(&self, nonce: &[u8; 8]) -> ChaCha20Poly1305 {
@@ -75,7 +66,8 @@ impl<V: Serialize + DeserializeOwned> ChaCha20Poly1305SessionManager<V> {
 }
 
 impl<V: Serialize + DeserializeOwned + Send + Sync> SessionManager<V>
-    for ChaCha20Poly1305SessionManager<V> {
+    for ChaCha20Poly1305SessionManager<V>
+{
     fn deserialize(&self, bytes: &[u8]) -> Result<Session<V>, SessionError> {
         if bytes.len() <= 40 {
             return Err(SessionError::ValidationError);
@@ -102,7 +94,7 @@ impl<V: Serialize + DeserializeOwned + Send + Sync> SessionManager<V>
             return Err(SessionError::ValidationError);
         }
 
-        bincode::deserialize(&plaintext[16..plaintext.len()]).map_err(|err| {
+        serde_cbor::from_slice(&plaintext[16..plaintext.len()]).map_err(|err| {
             warn!("Failed to deserialize session: {}", err);
             SessionError::InternalError
         })
@@ -110,15 +102,15 @@ impl<V: Serialize + DeserializeOwned + Send + Sync> SessionManager<V>
 
     fn serialize(&self, session: &Session<V>) -> Result<Vec<u8>, SessionError> {
         let mut nonce = [0; 8];
-        self.random_bytes(&mut nonce)?;
+        self.random_bytes(&mut nonce);
 
-        let session_bytes = bincode::serialize(&session, Infinite).map_err(|err| {
+        let session_bytes = serde_cbor::to_vec(&session).map_err(|err| {
             warn!("Failed to serialize session: {}", err);
             SessionError::InternalError
         })?;
 
         let mut padding = [0; 16];
-        self.random_bytes(&mut padding)?;
+        self.random_bytes(&mut padding);
 
         let mut plaintext = vec![0; session_bytes.len() + 16];
 
@@ -156,7 +148,6 @@ impl<V: Serialize + DeserializeOwned + Send + Sync> SessionManager<V>
     }
 }
 
-
 /// Uses the AES-GCM AEAD to provide signed, encrypted sessions.
 pub struct AesGcmSessionManager<V: Serialize + DeserializeOwned> {
     aead_key: [u8; 32],
@@ -172,14 +163,8 @@ impl<V: Serialize + DeserializeOwned> AesGcmSessionManager<V> {
         }
     }
 
-    fn random_bytes(&self, buf: &mut [u8]) -> Result<(), SessionError> {
-        // TODO We had to get rid of `ring` because of `gcc` conflicts with `rust-crypto`, and
-        // `ring`'s RNG didn't require mutability. Now create a new one per call which is not a
-        // great idea.
-        OsRng::new()
-            .map_err(|_| SessionError::InternalError)?
-            .fill_bytes(buf);
-        Ok(())
+    fn random_bytes(&self, buf: &mut [u8]) {
+        OsRng.fill_bytes(buf);
     }
 
     fn aead<'a>(&self, nonce: &[u8; 12]) -> AesGcm<'a> {
@@ -214,7 +199,7 @@ impl<V: Serialize + DeserializeOwned + Send + Sync> SessionManager<V> for AesGcm
             return Err(SessionError::ValidationError);
         }
 
-        bincode::deserialize(&plaintext[16..plaintext.len()]).map_err(|err| {
+        serde_cbor::from_slice(&plaintext[16..plaintext.len()]).map_err(|err| {
             warn!("Failed to deserialize session: {}", err);
             SessionError::InternalError
         })
@@ -222,15 +207,15 @@ impl<V: Serialize + DeserializeOwned + Send + Sync> SessionManager<V> for AesGcm
 
     fn serialize(&self, session: &Session<V>) -> Result<Vec<u8>, SessionError> {
         let mut nonce = [0; 12];
-        self.random_bytes(&mut nonce)?;
+        self.random_bytes(&mut nonce);
 
-        let session_bytes = bincode::serialize(&session, Infinite).map_err(|err| {
+        let session_bytes = serde_cbor::to_vec(&session).map_err(|err| {
             warn!("Failed to serialize session: {}", err);
             SessionError::InternalError
         })?;
 
         let mut padding = [0; 16];
-        self.random_bytes(&mut padding)?;
+        self.random_bytes(&mut padding);
 
         let mut plaintext = vec![0; session_bytes.len() + 16];
 
@@ -273,14 +258,17 @@ impl<V: Serialize + DeserializeOwned + Send + Sync> SessionManager<V> for AesGcm
 /// All instances are used only for parsing in the order they are passed in to the
 /// `MultiSessionManager`.
 pub struct MultiSessionManager<V: Serialize + DeserializeOwned + Send + Sync> {
-    current: Box<SessionManager<V>>,
-    previous: Vec<Box<SessionManager<V>>>,
+    current: Box<dyn SessionManager<V>>,
+    previous: Vec<Box<dyn SessionManager<V>>>,
 }
 
 impl<V: Serialize + DeserializeOwned + Send + Sync> MultiSessionManager<V> {
     /// Create a new `MultiSessionManager` from one current `SessionManager` and some `N` previous
     /// instances of `SessionManager`.
-    pub fn new(current: Box<SessionManager<V>>, previous: Vec<Box<SessionManager<V>>>) -> Self {
+    pub fn new(
+        current: Box<dyn SessionManager<V>>,
+        previous: Vec<Box<dyn SessionManager<V>>>,
+    ) -> Self {
         Self { current, previous }
     }
 }
@@ -317,10 +305,11 @@ mod tests {
 
     macro_rules! test_cases {
         ($strct: ident, $md: ident) => {
-            mod $md  {
-                use $crate::error::SessionError;
-                use $crate::session::{$strct, SessionManager, Session};
+            mod $md {
                 use super::KEY_1;
+                use serde::{Deserialize, Serialize};
+                use $crate::error::SessionError;
+                use $crate::session::{$strct, Session, SessionManager};
 
                 #[derive(Serialize, Deserialize, Eq, PartialEq, Clone, Debug)]
                 struct Data {
@@ -330,8 +319,13 @@ mod tests {
                 #[test]
                 fn serde_happy_path() {
                     let manager = $strct::from_key(KEY_1);
-                    let data = Data { string: "boots and cats".to_string() };
-                    let session = Session { expires: None, value: Some(data.clone()) };
+                    let data = Data {
+                        string: "boots and cats".to_string(),
+                    };
+                    let session = Session {
+                        expires: None,
+                        value: Some(data.clone()),
+                    };
                     let bytes = manager.serialize(&session).expect("couldn't serialize");
                     let parsed_session = manager.deserialize(&bytes).expect("couldn't deserialize");
                     assert_eq!(parsed_session.value, Some(data));
@@ -340,8 +334,13 @@ mod tests {
                 #[test]
                 fn serde_bad_data_end() {
                     let manager = $strct::from_key(KEY_1);
-                    let data = Data { string: "boots and cats".to_string() };
-                    let session = Session { expires: None, value: Some(data.clone()) };
+                    let data = Data {
+                        string: "boots and cats".to_string(),
+                    };
+                    let session = Session {
+                        expires: None,
+                        value: Some(data.clone()),
+                    };
                     let mut bytes = manager.serialize(&session).expect("couldn't serialize");
                     let len = bytes.len();
                     bytes[len - 1] ^= 0x01;
@@ -354,8 +353,13 @@ mod tests {
                 #[test]
                 fn serde_bad_data_start() {
                     let manager = $strct::from_key(KEY_1);
-                    let data = Data { string: "boots and cats".to_string() };
-                    let session = Session { expires: None, value: Some(data.clone()) };
+                    let data = Data {
+                        string: "boots and cats".to_string(),
+                    };
+                    let session = Session {
+                        expires: None,
+                        value: Some(data.clone()),
+                    };
 
                     let mut bytes = manager.serialize(&session).expect("couldn't serialize");
                     bytes[0] ^= 0x01;
@@ -363,9 +367,9 @@ mod tests {
                     let deserialized: Result<Session<Data>, SessionError> =
                         manager.deserialize(&bytes);
                     assert!(deserialized.is_err());
-				}
+                }
             }
-        }
+        };
     }
 
     test_cases!(AesGcmSessionManager, aesgcm);
@@ -375,8 +379,8 @@ mod tests {
         macro_rules! test_cases {
             ($strct1: ident, $strct2: ident, $name: ident) => {
                 mod $name {
-                    use $crate::session::*;
                     use super::super::{KEY_1, KEY_2};
+                    use $crate::session::*;
 
                     #[derive(Serialize, Deserialize, Eq, PartialEq, Clone, Debug)]
                     struct Data {
@@ -388,8 +392,13 @@ mod tests {
                         let manager = $strct1::from_key(KEY_1);
                         let mut sessions = vec![];
 
-                        let data = Data { string: "boots and cats".to_string() };
-                        let session = Session { expires: None, value: Some(data.clone()) };
+                        let data = Data {
+                            string: "boots and cats".to_string(),
+                        };
+                        let session = Session {
+                            expires: None,
+                            value: Some(data.clone()),
+                        };
                         let bytes = manager.serialize(&session).expect("couldn't serialize");
                         sessions.push(bytes);
 
@@ -398,7 +407,8 @@ mod tests {
                         sessions.push(bytes);
 
                         for session in sessions.iter() {
-                            let parsed_session = multi.deserialize(session).expect("couldn't deserialize");
+                            let parsed_session =
+                                multi.deserialize(session).expect("couldn't deserialize");
                             assert_eq!(parsed_session.value, Some(data.clone()));
                         }
                     }
@@ -409,25 +419,34 @@ mod tests {
                         let manager_2 = $strct2::from_key(KEY_2);
                         let mut sessions = vec![];
 
-                        let data = Data { string: "boots and cats".to_string() };
-                        let session = Session { expires: None, value: Some(data.clone()) };
+                        let data = Data {
+                            string: "boots and cats".to_string(),
+                        };
+                        let session = Session {
+                            expires: None,
+                            value: Some(data.clone()),
+                        };
                         let bytes = manager_1.serialize(&session).expect("couldn't serialize");
                         sessions.push(bytes);
 
                         let bytes = manager_2.serialize(&session).expect("couldn't serialize");
                         sessions.push(bytes);
 
-                        let multi = MultiSessionManager::new(Box::new(manager_1), vec![Box::new(manager_2)]);
+                        let multi = MultiSessionManager::new(
+                            Box::new(manager_1),
+                            vec![Box::new(manager_2)],
+                        );
                         let bytes = multi.serialize(&session).expect("couldn't serialize");
                         sessions.push(bytes);
 
                         for session in sessions.iter() {
-                            let parsed_session = multi.deserialize(session).expect("couldn't deserialize");
+                            let parsed_session =
+                                multi.deserialize(session).expect("couldn't deserialize");
                             assert_eq!(parsed_session.value, Some(data.clone()));
                         }
                     }
                 }
-            }
+            };
         }
 
         test_cases!(

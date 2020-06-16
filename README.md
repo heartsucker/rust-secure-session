@@ -21,6 +21,4 @@ via other channels will be immediately made public.
 
 ## Legal
 
-### License
-
 This work is licensed under the MIT license. See [LICENSE](./LICENSE) for details.

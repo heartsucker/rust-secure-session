@@ -106,8 +106,8 @@ fn session_data_deserialize_1000_items(b: &mut Bencher) {
 macro_rules! benchmark {
     ($strct: ident, $md: ident) => {
         mod $md {
-            use secure_session::session::{$strct, SessionManager};
             use super::{session_data, KEY_32};
+            use secure_session::session::{$strct, SessionManager};
             use test::Bencher;
 
             #[bench]
@@ -185,9 +185,8 @@ macro_rules! benchmark {
                     let _ = manager.deserialize(&bytes).expect("failed to deserialize");
                 });
             }
-
         }
-    }
+    };
 }
 
 benchmark!(AesGcmSessionManager, aesgcm);

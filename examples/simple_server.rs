@@ -1,31 +1,30 @@
-extern crate iron;
-extern crate secure_session;
-extern crate serde;
-#[macro_use]
-extern crate serde_derive;
-extern crate typemap;
-
-use iron::AroundMiddleware;
 use iron::headers::ContentType;
 use iron::method::Method;
-use iron::prelude::*;
 use iron::status;
+use iron::{AroundMiddleware, Iron, IronResult, Request, Response};
+use secure_session::middleware::{SessionConfig, SessionMiddleware};
+use secure_session::session::ChaCha20Poly1305SessionManager;
+use serde::{Deserialize, Serialize};
+use simplelog::{CombinedLogger, LevelFilter, TermLogger, TerminalMode};
 use std::io::Read;
 use std::str;
 
-use secure_session::middleware::{SessionMiddleware, SessionConfig};
-use secure_session::session::ChaCha20Poly1305SessionManager;
-
 fn main() {
+    CombinedLogger::init(vec![TermLogger::new(
+        LevelFilter::Debug,
+        simplelog::Config::default(),
+        TerminalMode::Stdout,
+    )])
+    .unwrap();
+
     // initialize the session manager
     let key = *b"01234567012345670123456701234567";
     let manager = ChaCha20Poly1305SessionManager::<Session>::from_key(key);
     let config = SessionConfig::default();
-    let middleware = SessionMiddleware::<
-        Session,
-        SessionKey,
-        ChaCha20Poly1305SessionManager<Session>,
-    >::new(manager, config);
+    let middleware =
+        SessionMiddleware::<Session, SessionKey, ChaCha20Poly1305SessionManager<Session>>::new(
+            manager, config,
+        );
 
     // wrap the routes
     let handler = middleware.around(Box::new(index));
@@ -54,19 +53,18 @@ fn index(request: &mut Request) -> IronResult<Response> {
 
             // only update if the message was never seen before
             if insert {
-                let _ = request.extensions.insert::<SessionKey>(
-                    Session { message: message.clone() },
-                );
+                log::info!("Inserting session message: {}", message);
+                let _ = request.extensions.insert::<SessionKey>(Session {
+                    message: message.clone(),
+                });
             }
 
             message
         }
-        _ => {
-            match request.extensions.get::<SessionKey>() {
-                Some(ref data) => data.message.clone(),
-                None => "no session message yet".to_string(),
-            }
-        }
+        _ => match request.extensions.get::<SessionKey>() {
+            Some(ref data) => data.message.clone(),
+            None => "no session message yet".to_string(),
+        },
     };
 
     // in the real world, one would use something like handlebars instead of this hackiness
