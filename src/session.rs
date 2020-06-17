@@ -1,10 +1,9 @@
 //! Sessions and session management utilities.
 
 use crate::error::SessionError;
-use crypto::aead::{AeadDecryptor, AeadEncryptor};
-use crypto::aes::KeySize;
-use crypto::aes_gcm::AesGcm;
-use crypto::chacha20poly1305::ChaCha20Poly1305;
+use aead::{generic_array::GenericArray, Aead, NewAead};
+use aes_gcm::Aes256Gcm;
+use chacha20poly1305::ChaCha20Poly1305;
 use rand::rngs::OsRng;
 use rand::RngCore;
 use serde::de::DeserializeOwned;
@@ -60,8 +59,8 @@ impl<V: Serialize + DeserializeOwned> ChaCha20Poly1305SessionManager<V> {
         OsRng.fill_bytes(buf);
     }
 
-    fn aead(&self, nonce: &[u8; 8]) -> ChaCha20Poly1305 {
-        ChaCha20Poly1305::new(&self.aead_key, nonce, &[])
+    fn aead(&self) -> ChaCha20Poly1305 {
+        ChaCha20Poly1305::new(&GenericArray::clone_from_slice(&self.aead_key))
     }
 }
 
@@ -69,75 +68,48 @@ impl<V: Serialize + DeserializeOwned + Send + Sync> SessionManager<V>
     for ChaCha20Poly1305SessionManager<V>
 {
     fn deserialize(&self, bytes: &[u8]) -> Result<Session<V>, SessionError> {
-        if bytes.len() <= 40 {
+        if bytes.len() <= 60 {
             return Err(SessionError::ValidationError);
         }
 
-        let mut ciphertext = vec![0; bytes.len() - 24];
-        let mut plaintext = vec![0; bytes.len() - 24];
-        let mut tag = [0; 16];
-        let mut nonce = [0; 8];
+        let nonce = GenericArray::from_slice(&bytes[0..12]);
+        let plaintext = self
+            .aead()
+            .decrypt(&nonce, bytes[12..].as_ref())
+            .map_err(|_| SessionError::InternalError)?;
 
-        for i in 0..8 {
-            nonce[i] = bytes[i];
-        }
-        for i in 0..16 {
-            tag[i] = bytes[i + 8];
-        }
-        for i in 0..(bytes.len() - 24) {
-            ciphertext[i] = bytes[i + 24];
-        }
-
-        let mut aead = self.aead(&nonce);
-        if !aead.decrypt(&ciphertext, &mut plaintext, &tag) {
-            info!("Failed to decrypt session");
-            return Err(SessionError::ValidationError);
-        }
-
-        serde_cbor::from_slice(&plaintext[16..plaintext.len()]).map_err(|err| {
+        // 32 bytes of badding
+        serde_cbor::from_slice(&plaintext[32..plaintext.len()]).map_err(|err| {
             warn!("Failed to deserialize session: {}", err);
             SessionError::InternalError
         })
     }
 
     fn serialize(&self, session: &Session<V>) -> Result<Vec<u8>, SessionError> {
-        let mut nonce = [0; 8];
-        self.random_bytes(&mut nonce);
-
         let session_bytes = serde_cbor::to_vec(&session).map_err(|err| {
             warn!("Failed to serialize session: {}", err);
             SessionError::InternalError
         })?;
 
-        let mut padding = [0; 16];
+        let mut padding = [0; 32];
         self.random_bytes(&mut padding);
 
-        let mut plaintext = vec![0; session_bytes.len() + 16];
+        let mut plaintext = vec![0; session_bytes.len() + 32];
+        plaintext[0..32].copy_from_slice(&padding);
+        plaintext[32..].copy_from_slice(&session_bytes);
 
-        for i in 0..16 {
-            plaintext[i] = padding[i];
-        }
-        for i in 0..session_bytes.len() {
-            plaintext[i + 16] = session_bytes[i];
-        }
+        let mut nonce = [0; 12];
+        self.random_bytes(&mut nonce);
+        let nonce = GenericArray::from_slice(&nonce);
 
-        let mut ciphertext = vec![0; plaintext.len()];
-        let mut tag = [0; 16];
-        let mut aead = self.aead(&nonce);
+        let ciphertext = self
+            .aead()
+            .encrypt(&nonce, plaintext.as_ref())
+            .map_err(|_| SessionError::InternalError)?;
 
-        aead.encrypt(&plaintext, &mut ciphertext, &mut tag);
-
-        let mut transport = vec![0; ciphertext.len() + 24];
-
-        for i in 0..8 {
-            transport[i] = nonce[i];
-        }
-        for i in 0..16 {
-            transport[i + 8] = tag[i];
-        }
-        for i in 0..ciphertext.len() {
-            transport[i + 24] = ciphertext[i];
-        }
+        let mut transport = vec![0; ciphertext.len() + 12];
+        transport[0..12].copy_from_slice(&nonce);
+        transport[12..].copy_from_slice(&ciphertext);
 
         Ok(transport)
     }
@@ -167,82 +139,55 @@ impl<V: Serialize + DeserializeOwned> AesGcmSessionManager<V> {
         OsRng.fill_bytes(buf);
     }
 
-    fn aead<'a>(&self, nonce: &[u8; 12]) -> AesGcm<'a> {
-        AesGcm::new(KeySize::KeySize256, &self.aead_key, nonce, &[])
+    fn aead(&self) -> Aes256Gcm {
+        Aes256Gcm::new(&GenericArray::clone_from_slice(&self.aead_key))
     }
 }
 
 impl<V: Serialize + DeserializeOwned + Send + Sync> SessionManager<V> for AesGcmSessionManager<V> {
     fn deserialize(&self, bytes: &[u8]) -> Result<Session<V>, SessionError> {
-        if bytes.len() <= 44 {
+        if bytes.len() <= 60 {
             return Err(SessionError::ValidationError);
         }
 
-        let mut ciphertext = vec![0; bytes.len() - 28];
-        let mut plaintext = vec![0; bytes.len() - 28];
-        let mut tag = [0; 16];
-        let mut nonce = [0; 12];
+        let nonce = GenericArray::from_slice(&bytes[0..12]);
+        let plaintext = self
+            .aead()
+            .decrypt(&nonce, bytes[12..].as_ref())
+            .map_err(|_| SessionError::InternalError)?;
 
-        for i in 0..12 {
-            nonce[i] = bytes[i];
-        }
-        for i in 0..16 {
-            tag[i] = bytes[i + 12];
-        }
-        for i in 0..(bytes.len() - 28) {
-            ciphertext[i] = bytes[i + 28];
-        }
-
-        let mut aead = self.aead(&nonce);
-        if !aead.decrypt(&ciphertext, &mut plaintext, &tag) {
-            info!("Failed to decrypt session");
-            return Err(SessionError::ValidationError);
-        }
-
-        serde_cbor::from_slice(&plaintext[16..plaintext.len()]).map_err(|err| {
+        // 32 bytes of badding
+        serde_cbor::from_slice(&plaintext[32..plaintext.len()]).map_err(|err| {
             warn!("Failed to deserialize session: {}", err);
             SessionError::InternalError
         })
     }
 
     fn serialize(&self, session: &Session<V>) -> Result<Vec<u8>, SessionError> {
-        let mut nonce = [0; 12];
-        self.random_bytes(&mut nonce);
-
         let session_bytes = serde_cbor::to_vec(&session).map_err(|err| {
             warn!("Failed to serialize session: {}", err);
             SessionError::InternalError
         })?;
 
-        let mut padding = [0; 16];
+        let mut padding = [0; 32];
         self.random_bytes(&mut padding);
 
-        let mut plaintext = vec![0; session_bytes.len() + 16];
+        let mut plaintext = vec![0; session_bytes.len() + 32];
+        plaintext[0..32].copy_from_slice(&padding);
+        plaintext[32..].copy_from_slice(&session_bytes);
 
-        for i in 0..16 {
-            plaintext[i] = padding[i];
-        }
-        for i in 0..session_bytes.len() {
-            plaintext[i + 16] = session_bytes[i];
-        }
+        let mut nonce = [0; 12];
+        self.random_bytes(&mut nonce);
+        let nonce = GenericArray::from_slice(&nonce);
 
-        let mut ciphertext = vec![0; plaintext.len()];
-        let mut tag = [0; 16];
-        let mut aead = self.aead(&nonce);
+        let ciphertext = self
+            .aead()
+            .encrypt(&nonce, plaintext.as_ref())
+            .map_err(|_| SessionError::InternalError)?;
 
-        aead.encrypt(&plaintext, &mut ciphertext, &mut tag);
-
-        let mut transport = vec![0; ciphertext.len() + 28];
-
-        for i in 0..12 {
-            transport[i] = nonce[i];
-        }
-        for i in 0..16 {
-            transport[i + 12] = tag[i];
-        }
-        for i in 0..ciphertext.len() {
-            transport[i + 28] = ciphertext[i];
-        }
+        let mut transport = vec![0; ciphertext.len() + 12];
+        transport[0..12].copy_from_slice(&nonce);
+        transport[12..].copy_from_slice(&ciphertext);
 
         Ok(transport)
     }

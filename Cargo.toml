@@ -21,12 +21,15 @@ name = "secure_session"
 path = "./src/lib.rs"
 
 [dependencies]
+aead = "0.3"
+aes-gcm = "0.6"
+chacha20poly1305 = "0.5"
 cookie = { version = "0.14", features = [ "percent-encode" ] }
 data-encoding = "2"
+generic-array = "0.14"
 iron = "0.6"
 log = "0.4"
 rand = "0.7"
-rust-crypto = "0.2"
 serde = { version = "1", features = ["derive"] }
 serde_cbor = "0.11"
 time = { version = "0.2", features = ["std", "serde"] }
