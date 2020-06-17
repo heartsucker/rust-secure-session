@@ -8,11 +8,9 @@
 //! ```
 //! extern crate iron;
 //! extern crate secure_session;
-//! extern crate serde;
-//! #[macro_use]
-//! extern crate serde_derive;
 //! extern crate typemap;
 //!
+//! use serde::{Deserialize, Serialize};
 //! use iron::AroundMiddleware;
 //! use iron::prelude::*;
 //! use iron::status;
@@ -54,27 +52,12 @@
 
 #![deny(missing_docs)]
 
-extern crate bincode;
-extern crate chrono;
-extern crate cookie;
-extern crate crypto;
-extern crate data_encoding;
-#[cfg(test)]
-extern crate hyper;
-extern crate iron;
-#[cfg(test)]
-extern crate iron_test;
 #[macro_use]
 extern crate log;
-extern crate rand;
-extern crate serde;
-#[macro_use]
-extern crate serde_derive;
-extern crate typemap;
 
 /// The name of the cookie that stores the session.
 pub const SESSION_COOKIE_NAME: &'static str = "ss";
 
 pub mod error;
-pub mod session;
 pub mod middleware;
+pub mod session;
